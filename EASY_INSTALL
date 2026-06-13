@@ -1,0 +1,14 @@
+# CMDS-GO Easy Install
+# ============================================================
+# Base OS Requirement: Rocky Linux 10.1 (minimal)
+# https://rockylinux.org/download
+#
+# Before running:
+#   - Enable root SSH access during OS install
+#   - Set a static IP (or let the installer handle it)
+#   - Ensure internet connectivity
+#
+# After OS install, SSH in as root and run:
+# ============================================================
+
+sudo dnf -y install wget && cd "$HOME" && bash <(wget -qO- https://raw.githubusercontent.com/fumatchu/CMDS_WEB/main/CMDS_WEB-Installer.sh)

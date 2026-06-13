@@ -1,0 +1,25 @@
+# CMDS-GO Python Requirements
+# Install with: pip3 install -r requirements.txt
+#
+# NOTE: 'requests' is managed by the Rocky Linux system RPM.
+# Do NOT add it here — pip cannot safely upgrade the system package.
+# It is available to import normally.
+
+# Web framework + ASGI server
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+
+# File upload support (required for FastAPI multipart/form-data)
+python-multipart>=0.0.6
+
+# PAM authentication (system login via /api/login)
+python-pam>=2.0.0
+
+# Meraki Python SDK
+meraki>=1.38.0
+
+# Async file I/O (for static file serving / streaming)
+aiofiles>=23.0.0
+
+# Environment variable / .env file support
+python-dotenv>=1.0.0
