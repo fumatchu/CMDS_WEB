@@ -115,8 +115,7 @@ check_and_enable_selinux() {
 # =============================================================
 detect_active_interface() {
   section "Network Interface"
-  dialog --backtitle "Network Setup" --title "Interface Check" \
-    --infobox "Detecting active network interface..." 5 50; sleep 2
+  step_info "Detecting active network interface..."
 
   INTERFACE=$(nmcli -t -f DEVICE,TYPE,STATE device | grep "ethernet:connected" | cut -d: -f1 | head -n1)
   [[ -z "$INTERFACE" ]] && INTERFACE=$(ip -o -4 addr show up | grep -v ' lo ' | awk '{print $2}' | head -n1)
@@ -185,11 +184,7 @@ prompt_static_ip_if_dhcp() {
         13 60
 
       if [[ $? -eq 0 ]]; then
-        nmcli con mod "$CONNECTION" ipv4.address "$IPADDR"
-        nmcli con mod "$CONNECTION" ipv4.gateway "$GW"
-        nmcli con mod "$CONNECTION" ipv4.method manual
-        nmcli con mod "$CONNECTION" ipv4.dns "$DNSSERVER"
-        nmcli con mod "$CONNECTION" ipv4.dns-search "$DNSSEARCH"
+        nmcli con mod "$CONNECTION" ipv4.addresses "$IPADDR" ipv4.gateway "$GW" ipv4.method manual ipv4.dns "$DNSSERVER" ipv4.dns-search "$DNSSEARCH"
         hostnamectl set-hostname "$HOSTNAME"
 
         # Inject auto-resume into .bash_profile so installer continues after reboot
@@ -252,7 +247,8 @@ validate_and_set_hostname() {
         step_ok "Hostname set to: ${NEW_HOSTNAME}"
         break
       else
-        dialog --msgbox "Invalid FQDN. Try again." 6 50
+        step_fail "Invalid FQDN — must be host.domain.tld format. Try again."
+        sleep 2
       fi
     done
   else
@@ -265,30 +261,30 @@ validate_and_set_hostname() {
 # STEP 7 — PRE-INSTALL CHECKLIST
 # =============================================================
 show_server_checklist() {
-  dialog --backtitle "CMDS-GO Installer" \
-    --title "Pre-Installation Checklist" \
-    --msgbox "\
-*********************************************
-  CMDS-GO Server Installation
-*********************************************
-
-This installer will set up:
-  • Base system packages + security (fail2ban, SELinux)
-  • NTP time sync (optional)
-  • DHCP server via Kea (optional)
-  • TFTP + HTTP image server for IOS-XE firmware
-  • FastAPI backend (cmds-go service)
-  • Apache reverse proxy for the web UI
-  • Cockpit web management console
-
-Have ready (if enabling optional services):
-  1. NTP server IPs or FQDNs (up to 3)
-  2. NTP allow subnet in CIDR (e.g., 192.168.1.0/24)
-  3. DHCP range start/end IPs
-  4. DHCP default gateway IP
-  5. DHCP domain suffix
-
-*********************************************" 26 65
+  clear
+  echo ""
+  echo -e "${CYAN}  ╔══════════════════════════════════════════════╗${TEXTRESET}"
+  echo -e "${CYAN}  ║         CMDS-GO Server Installation          ║${TEXTRESET}"
+  echo -e "${CYAN}  ╚══════════════════════════════════════════════╝${TEXTRESET}"
+  echo ""
+  echo -e "  This installer will set up:"
+  echo -e "    ${GREEN}✓${TEXTRESET}  Base system packages + security (fail2ban, SELinux)"
+  echo -e "    ${GREEN}✓${TEXTRESET}  TFTP + HTTP image server for IOS-XE firmware"
+  echo -e "    ${GREEN}✓${TEXTRESET}  FastAPI backend (cmds-go service)"
+  echo -e "    ${GREEN}✓${TEXTRESET}  Apache reverse proxy for the web UI"
+  echo -e "    ${GREEN}✓${TEXTRESET}  Cockpit web management console"
+  echo -e "    ${YELLOW}→${TEXTRESET}  NTP time sync           ${YELLOW}(optional — you will be prompted)${TEXTRESET}"
+  echo -e "    ${YELLOW}→${TEXTRESET}  DHCP server via Kea     ${YELLOW}(optional — you will be prompted)${TEXTRESET}"
+  echo ""
+  echo -e "  ${YELLOW}Have ready if enabling optional services:${TEXTRESET}"
+  echo -e "    1. NTP server IPs or FQDNs (up to 3)"
+  echo -e "    2. NTP allow subnet in CIDR  (e.g., 192.168.1.0/24)"
+  echo -e "    3. DHCP range start/end IPs"
+  echo -e "    4. DHCP default gateway IP"
+  echo -e "    5. DHCP domain suffix"
+  echo ""
+  echo -e "  Press ${CYAN}Enter${TEXTRESET} to begin installation..."
+  read -r
 }
 
 # =============================================================
@@ -334,6 +330,7 @@ run_system_upgrade() {
     rm -f "$PIPE"; return
   fi
 
+  clear
   dialog --backtitle "System Upgrade" --title "Upgrading Packages" \
     --gauge "Starting system upgrade..." 10 70 0 < "$PIPE" &
 
@@ -349,6 +346,8 @@ run_system_upgrade() {
   } > "$PIPE"
   wait; rm -f "$PIPE"
 
+  clear
+  section "System Upgrade"
   step_ok "System packages upgraded (${TOTAL} packages)"
   sleep 1
 }
@@ -378,6 +377,7 @@ update_and_install_packages() {
   local TOTAL=${#REQUIRED_PKGS[@]} COUNT=0
   local PIPE; PIPE=$(mktemp -u); mkfifo "$PIPE"
 
+  clear
   dialog --backtitle "Package Install" --title "Installing Required Packages" \
     --gauge "Preparing..." 10 70 0 < "$PIPE" &
 
@@ -392,6 +392,8 @@ update_and_install_packages() {
   } > "$PIPE"
   wait; rm -f "$PIPE"
 
+  clear
+  section "Required Packages"
   step_ok "Required packages installed"
   sleep 1
 }
@@ -420,6 +422,109 @@ vm_detection() {
     step_ok "No hypervisor guest tools needed (physical or unsupported platform)"
   fi
   sleep 1
+}
+
+# =============================================================
+# UPFRONT QUESTIONS — ask everything before installation begins
+# =============================================================
+gather_optional_config() {
+  section "Optional Services Setup"
+  echo ""
+  step_info "Answer the following questions now — installation will then run unattended."
+  echo ""
+  sleep 1
+
+  # ── NTP ──────────────────────────────────────────────────────────────────────
+  INSTALL_NTP=0
+  dialog --backtitle "Optional Services" --title "NTP Server" \
+    --yesno "Configure this server as a Chrony NTP server for your network?" 7 60
+  if [[ $? -eq 0 ]]; then
+    INSTALL_NTP=1
+    _prompt_ntp_servers || INSTALL_NTP=0
+    [[ $INSTALL_NTP -eq 1 ]] && { _prompt_ntp_allow || INSTALL_NTP=0; }
+  fi
+
+  # ── KEA DHCP ─────────────────────────────────────────────────────────────────
+  INSTALL_KEA=0
+  dialog --backtitle "Optional Services" --title "DHCP Server" \
+    --yesno "Install and configure Kea DHCP on this server?" 7 55
+  if [[ $? -eq 0 ]]; then
+    INSTALL_KEA=1
+
+    # Detect interface details
+    local iface inet4_line
+    iface=$(nmcli -t -f DEVICE,STATE device status | awk -F: '$2=="connected"{print $1; exit}')
+    inet4_line=$(nmcli -g IP4.ADDRESS device show "$iface" | head -n1)
+    KEA_IFACE="$iface"
+    KEA_INET4="${inet4_line%/*}"
+    KEA_CIDR="${inet4_line#*/}"
+    KEA_NETWORK=$(network_from_ip_cidr "$KEA_INET4" "$KEA_CIDR")
+    KEA_NETMASK=$(cidr_to_netmask "$KEA_CIDR")
+    local DEF_SUFFIX; DEF_SUFFIX="$(hostname -d 2>/dev/null || true)"
+
+    while true; do
+      while true; do
+        POOL_START=$(dialog --backtitle "Kea DHCP" --stdout \
+          --inputbox "DHCP range START IP (in ${KEA_NETWORK}/${KEA_CIDR}):" 8 70)
+        is_valid_ip "$POOL_START" && ip_in_cidr "$POOL_START" "$KEA_NETWORK" "$KEA_CIDR" && break
+        dialog --msgbox "Invalid or out-of-range IP." 6 40
+      done
+      while true; do
+        POOL_END=$(dialog --backtitle "Kea DHCP" --stdout \
+          --inputbox "DHCP range END IP (in ${KEA_NETWORK}/${KEA_CIDR}):" 8 70)
+        is_valid_ip "$POOL_END" && ip_in_cidr "$POOL_END" "$KEA_NETWORK" "$KEA_CIDR" && \
+          (( $(ip_to_int "$POOL_START") <= $(ip_to_int "$POOL_END") )) && break
+        dialog --msgbox "Invalid, out-of-range, or less than start IP." 6 50
+      done
+      while true; do
+        KEA_ROUTER=$(dialog --backtitle "Kea DHCP" --stdout \
+          --inputbox "Default gateway for clients (in ${KEA_NETWORK}/${KEA_CIDR}):" 8 70)
+        is_valid_ip "$KEA_ROUTER" && ip_in_cidr "$KEA_ROUTER" "$KEA_NETWORK" "$KEA_CIDR" && break
+        dialog --msgbox "Invalid or out-of-range gateway." 6 40
+      done
+      while true; do
+        KEA_DOM_SUFFIX=$(dialog --backtitle "Kea DHCP" --stdout \
+          --inputbox "Domain suffix for clients:" 8 70 "${DEF_SUFFIX}")
+        is_valid_domain "$KEA_DOM_SUFFIX" && break
+        dialog --msgbox "Invalid domain suffix." 6 40
+      done
+      KEA_DNS_SERVERS=$(dialog --backtitle "Kea DHCP" --stdout \
+        --inputbox "DNS servers (comma-separated, default: ${KEA_INET4}):" 8 70 "$KEA_INET4")
+      [[ -z "$KEA_DNS_SERVERS" ]] && KEA_DNS_SERVERS="$KEA_INET4"
+      KEA_SUBNET_DESC=$(dialog --backtitle "Kea DHCP" --stdout \
+        --inputbox "Friendly description for this scope:" 8 70)
+
+      dialog --backtitle "Kea DHCP" --title "Confirm DHCP Settings" --yesno \
+"Interface:  ${KEA_IFACE}
+Server IP:  ${KEA_INET4}/${KEA_CIDR}
+Subnet:     ${KEA_NETWORK}/${KEA_CIDR}
+Range:      ${POOL_START}  →  ${POOL_END}
+Gateway:    ${KEA_ROUTER}
+DNS:        ${KEA_DNS_SERVERS}
+Domain:     ${KEA_DOM_SUFFIX}
+Desc:       ${KEA_SUBNET_DESC}
+
+Apply these settings?" 18 65 && break
+    done
+  fi
+
+  # ── Summary before unattended run ────────────────────────────────────────────
+  clear
+  section "Configuration Summary"
+  echo ""
+  if [[ $INSTALL_NTP -eq 1 ]]; then
+    step_ok "NTP: will configure (servers: ${NTP_SERVERS})"
+  else
+    step_info "NTP: skipped"
+  fi
+  if [[ $INSTALL_KEA -eq 1 ]]; then
+    step_ok "KEA DHCP: will configure (range: ${POOL_START} → ${POOL_END})"
+  else
+    step_info "KEA DHCP: skipped"
+  fi
+  echo ""
+  echo -e "  Press ${CYAN}Enter${TEXTRESET} to begin unattended installation..."
+  read -r
 }
 
 # =============================================================
@@ -491,12 +596,10 @@ _validate_time_sync() {
 
 configure_ntp() {
   section "NTP / Chrony"
-  dialog --backtitle "Configure NTP" --title "NTP Setup" \
-    --yesno "Configure Chrony NTP server on this system?" 7 55
-  [[ $? -ne 0 ]] && { step_info "NTP configuration skipped"; return 0; }
-
-  _prompt_ntp_servers || { step_info "NTP configuration cancelled"; return 0; }
-  _prompt_ntp_allow   || { step_info "NTP allow-network cancelled"; return 0; }
+  if [[ "${INSTALL_NTP:-0}" -eq 0 ]]; then
+    step_info "NTP configuration skipped"
+    return 0
+  fi
   _update_chrony_config
   _validate_time_sync
   sleep 1
@@ -508,9 +611,10 @@ configure_ntp() {
 configure_dhcp_kea() {
   section "DHCP Server (Kea)"
 
-  dialog --backtitle "DHCP Server" --title "Kea DHCP" \
-    --yesno "Install and configure Kea DHCP on this server?" 7 55
-  [[ $? -ne 0 ]] && { step_info "DHCP installation skipped"; return 0; }
+  if [[ "${INSTALL_KEA:-0}" -eq 0 ]]; then
+    step_info "DHCP installation skipped"
+    return 0
+  fi
 
   local log="$LOGDIR/kea-install.log"
   : > "$log"
@@ -525,61 +629,15 @@ configure_dhcp_kea() {
   fi
   step_ok "Kea DHCP installed"
 
-  # --- Gather scope settings ---
-  local iface inet4_line INET4 CIDR NETWORK NETMASK
-  iface=$(nmcli -t -f DEVICE,STATE device status | awk -F: '$2=="connected"{print $1; exit}')
-  inet4_line=$(nmcli -g IP4.ADDRESS device show "$iface" | head -n1)
-  INET4=${inet4_line%/*}; CIDR=${inet4_line#*/}
-  NETWORK=$(network_from_ip_cidr "$INET4" "$CIDR")
-  NETMASK=$(cidr_to_netmask "$CIDR")
-
-  local POOL_START POOL_END ROUTER DOM_SUFFIX SEARCH_DOMAIN DNS_SERVERS SUBNET_DESC
-  local DEF_SUFFIX; DEF_SUFFIX="$(hostname -d 2>/dev/null || true)"
-
-  while true; do
-    while true; do
-      POOL_START=$(dialog --backtitle "Kea DHCP" --stdout \
-        --inputbox "DHCP range START IP (in ${NETWORK}/${CIDR}):" 8 70)
-      is_valid_ip "$POOL_START" && ip_in_cidr "$POOL_START" "$NETWORK" "$CIDR" && break
-      dialog --msgbox "Invalid or out-of-range IP." 6 40
-    done
-    while true; do
-      POOL_END=$(dialog --backtitle "Kea DHCP" --stdout \
-        --inputbox "DHCP range END IP (in ${NETWORK}/${CIDR}):" 8 70)
-      is_valid_ip "$POOL_END" && ip_in_cidr "$POOL_END" "$NETWORK" "$CIDR" && \
-        (( $(ip_to_int "$POOL_START") <= $(ip_to_int "$POOL_END") )) && break
-      dialog --msgbox "Invalid, out-of-range, or less than start IP." 6 50
-    done
-    while true; do
-      ROUTER=$(dialog --backtitle "Kea DHCP" --stdout \
-        --inputbox "Default gateway for clients (in ${NETWORK}/${CIDR}):" 8 70)
-      is_valid_ip "$ROUTER" && ip_in_cidr "$ROUTER" "$NETWORK" "$CIDR" && break
-      dialog --msgbox "Invalid or out-of-range gateway." 6 40
-    done
-    while true; do
-      DOM_SUFFIX=$(dialog --backtitle "Kea DHCP" --stdout \
-        --inputbox "Domain suffix for clients:" 8 70 "${DEF_SUFFIX}")
-      is_valid_domain "$DOM_SUFFIX" && break
-      dialog --msgbox "Invalid domain suffix." 6 40
-    done
-    DNS_SERVERS=$(dialog --backtitle "Kea DHCP" --stdout \
-      --inputbox "DNS servers (comma-separated, default: ${INET4}):" 8 70 "$INET4")
-    [[ -z "$DNS_SERVERS" ]] && DNS_SERVERS="$INET4"
-    SUBNET_DESC=$(dialog --backtitle "Kea DHCP" --stdout \
-      --inputbox "Friendly description for this scope:" 8 70)
-
-    dialog --backtitle "Kea DHCP" --title "Confirm Kea DHCP Settings" --yesno \
-"Interface:  ${iface}
-Server IP:  ${INET4}/${CIDR}
-Subnet:     ${NETWORK}/${CIDR}
-Range:      ${POOL_START}  →  ${POOL_END}
-Gateway:    ${ROUTER}
-DNS:        ${DNS_SERVERS}
-Domain:     ${DOM_SUFFIX}
-Desc:       ${SUBNET_DESC}
-
-Apply these settings?" 18 65 && break
-  done
+  # Use pre-gathered variables from gather_optional_config()
+  local iface="$KEA_IFACE"
+  local INET4="$KEA_INET4"
+  local CIDR="$KEA_CIDR"
+  local NETWORK="$KEA_NETWORK"
+  local ROUTER="$KEA_ROUTER"
+  local DOM_SUFFIX="$KEA_DOM_SUFFIX"
+  local DNS_SERVERS="$KEA_DNS_SERVERS"
+  local SUBNET_DESC="$KEA_SUBNET_DESC"
 
   local KEA_CONF="/etc/kea/kea-dhcp4.conf"
   mkdir -p /etc/kea
@@ -1286,6 +1344,7 @@ main() {
   check_internet_connectivity
   validate_and_set_hostname
   show_server_checklist
+  gather_optional_config
   enable_repos
   run_system_upgrade
   update_and_install_packages
