@@ -191,6 +191,21 @@ prompt_static_ip_if_dhcp() {
         nmcli con mod "$CONNECTION" ipv4.dns "$DNSSERVER"
         nmcli con mod "$CONNECTION" ipv4.dns-search "$DNSSEARCH"
         hostnamectl set-hostname "$HOSTNAME"
+
+        # Inject auto-resume into .bash_profile so installer continues after reboot
+        PROFILE="/root/.bash_profile"
+        INSTALLER="/root/CMDS_WEBInstaller/CMDS_WEBInstall.sh"
+        if ! grep -q "CMDS_WEBInstall" "$PROFILE" 2>/dev/null; then
+          cat >> "$PROFILE" << 'BASHEOF'
+
+## CMDS-GO Installer — auto-resume after reboot ##
+if [[ $- == *i* ]]; then
+  /root/CMDS_WEBInstaller/CMDS_WEBInstall.sh
+fi
+BASHEOF
+        fi
+        chmod +x "$INSTALLER" 2>/dev/null || true
+
         dialog --title "Reboot Required" \
           --msgbox "Network configured. System will reboot.\n\nReconnect at: ${IPADDR%%/*}" 7 60
         reboot
@@ -1292,6 +1307,9 @@ main() {
   install_cmds_service
   enable_cockpit
   final_status_report
+
+  # Remove auto-resume from .bash_profile now that install is complete
+  sed -i '/## CMDS-GO Installer — auto-resume after reboot ##/,/^fi$/d' /root/.bash_profile 2>/dev/null || true
 }
 
 main
