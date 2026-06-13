@@ -1,0 +1,31 @@
+# Runtime directories — created by installer, not committed
+opt/cmds-go/data/
+opt/cmds-go/logs/
+opt/cmds-go/runs/
+opt/cmds-go/state/
+opt/cmds-go/tmp/
+
+# Secrets / environment files
+*.env
+.env
+.env.local
+api/.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Editor artifacts
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
