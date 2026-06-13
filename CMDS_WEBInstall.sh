@@ -295,16 +295,34 @@ enable_repos() {
   local log="$LOGDIR/repo-setup.log"
   : > "$log"
 
-  step_info "Enabling EPEL and CRB repositories..."
-  {
-    dnf -y install epel-release --setopt=install_weak_deps=False --color=never >>"$log" 2>&1
-    dnf -y install dnf-plugins-core --setopt=install_weak_deps=False --color=never >>"$log" 2>&1 || true
-    dnf config-manager --set-enabled crb --color=never >>"$log" 2>&1 || true
-    dnf -y makecache --refresh --color=never >>"$log" 2>&1
-  }
+  local PIPE; PIPE=$(mktemp -u); mkfifo "$PIPE"
 
-  if [[ $? -eq 0 ]]; then
-    step_ok "EPEL + CRB enabled"
+  clear
+  dialog --backtitle "Repository Setup" --title "Enabling Repositories" \
+    --gauge "Preparing..." 10 70 0 < "$PIPE" &
+
+  local rc=0
+  {
+    echo "10"; echo "XXX"; echo "Installing EPEL release..."; echo "XXX"
+    dnf -y install epel-release --setopt=install_weak_deps=False --color=never >>"$log" 2>&1 || rc=1
+
+    echo "40"; echo "XXX"; echo "Installing dnf-plugins-core..."; echo "XXX"
+    dnf -y install dnf-plugins-core --setopt=install_weak_deps=False --color=never >>"$log" 2>&1 || true
+
+    echo "65"; echo "XXX"; echo "Enabling CRB repository..."; echo "XXX"
+    dnf config-manager --set-enabled crb --color=never >>"$log" 2>&1 || true
+
+    echo "80"; echo "XXX"; echo "Refreshing package cache (this may take a moment)..."; echo "XXX"
+    dnf -y makecache --refresh --color=never >>"$log" 2>&1 || rc=1
+
+    echo "100"; echo "XXX"; echo "Repository setup complete."; echo "XXX"
+  } > "$PIPE"
+  wait; rm -f "$PIPE"
+
+  clear
+  section "Repository Setup"
+  if [[ $rc -eq 0 ]]; then
+    step_ok "EPEL + CRB enabled and cache refreshed"
   else
     step_fail "Repo setup had errors — see ${log}"
   fi
