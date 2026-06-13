@@ -425,31 +425,62 @@ vm_detection() {
 }
 
 # =============================================================
+service_menu_checklist() {
+  local BACKTITLE="Service Installer"
+  local TITLE="Install/Configure Services"
+  # Single-shot checklist (no loop-back)
+  local selection
+  selection=$(dialog --backtitle "$BACKTITLE" --title "$TITLE" --checklist \
+"Space = toggle; Enter = continue. You can pick more than one.
+Select \"Do not install any services (continue)\" to skip and move on." 19 80 8 \
+    BIND "Bind DNS (caching-only)"                   OFF \
+    KEA  "DHCP (Kea)"                                OFF \
+    NTP  "NTP (Chrony)"                              OFF \
+    NONE "Do not install any services (continue)"    OFF \
+    3>&1 1>&2 2>&3)
+  echo "$selection"
+}
+
 # UPFRONT QUESTIONS — ask everything before installation begins
 # =============================================================
 gather_optional_config() {
   section "Optional Services Setup"
   echo ""
-  step_info "Answer the following questions now — installation will then run unattended."
+  step_info "Select services to install, then answer their setup questions."
   echo ""
   sleep 1
 
-  # ── NTP ──────────────────────────────────────────────────────────────────────
   INSTALL_NTP=0
-  dialog --backtitle "Optional Services" --title "NTP Server" \
-    --yesno "Configure this server as a Chrony NTP server for your network?" 7 60
-  if [[ $? -eq 0 ]]; then
-    INSTALL_NTP=1
+  INSTALL_KEA=0
+  INSTALL_BIND=0
+
+  local selection rc
+  selection=$(service_menu_checklist)
+  rc=$?
+  clear
+
+  # Cancel/Esc or NONE → skip all services
+  if [[ $rc -ne 0 ]] || echo "$selection" | grep -qw "NONE"; then
+    step_info "No optional services selected — skipping."
+    echo ""
+    echo -e "  Press ${CYAN}Enter${TEXTRESET} to begin unattended installation..."
+    read -r
+    return 0
+  fi
+
+  # Set flags from selection
+  echo "$selection" | grep -qw "NTP"  && INSTALL_NTP=1
+  echo "$selection" | grep -qw "KEA"  && INSTALL_KEA=1
+  echo "$selection" | grep -qw "BIND" && INSTALL_BIND=1
+
+  # ── NTP follow-up questions ───────────────────────────────────────────────────
+  if [[ $INSTALL_NTP -eq 1 ]]; then
     _prompt_ntp_servers || INSTALL_NTP=0
     [[ $INSTALL_NTP -eq 1 ]] && { _prompt_ntp_allow || INSTALL_NTP=0; }
   fi
 
-  # ── KEA DHCP ─────────────────────────────────────────────────────────────────
-  INSTALL_KEA=0
-  dialog --backtitle "Optional Services" --title "DHCP Server" \
-    --yesno "Install and configure Kea DHCP on this server?" 7 55
-  if [[ $? -eq 0 ]]; then
-    INSTALL_KEA=1
+  # ── KEA DHCP follow-up questions ─────────────────────────────────────────────
+  if [[ $INSTALL_KEA -eq 1 ]]; then
 
     # Detect interface details
     local iface inet4_line
@@ -512,6 +543,11 @@ Apply these settings?" 18 65 && break
   clear
   section "Configuration Summary"
   echo ""
+  if [[ $INSTALL_BIND -eq 1 ]]; then
+    step_ok "BIND DNS: will configure (caching-only)"
+  else
+    step_info "BIND DNS: skipped"
+  fi
   if [[ $INSTALL_NTP -eq 1 ]]; then
     step_ok "NTP: will configure (servers: ${NTP_SERVERS})"
   else
@@ -592,6 +628,69 @@ _validate_time_sync() {
     [[ $? -ne 0 ]] && return 1
   fi
   return 0
+}
+
+# =============================================================
+# STEP 12a — BIND DNS (caching-only, optional)
+# =============================================================
+configure_bind() {
+  section "BIND DNS (caching-only)"
+  if [[ "${INSTALL_BIND:-0}" -eq 0 ]]; then
+    step_info "BIND DNS configuration skipped"
+    return 0
+  fi
+
+  step_info "Installing bind and bind-utils..."
+  dnf install -y bind bind-utils >> "$LOGDIR/bind.log" 2>&1
+  step_ok "bind installed"
+
+  # Caching-only: listen on loopback + server IP, allow-query from any
+  local server_ip
+  server_ip=$(nmcli -g IP4.ADDRESS device show \
+    "$(nmcli -t -f DEVICE,STATE device status | awk -F: '$2=="connected"{print $1; exit}')" \
+    | head -n1 | cut -d/ -f1)
+
+  cat > /etc/named.conf << NAMEDCONF
+options {
+    listen-on port 53 { 127.0.0.1; ${server_ip}; };
+    listen-on-v6 port 53 { ::1; };
+    directory       "/var/named";
+    dump-file       "/var/named/data/cache_dump.db";
+    statistics-file "/var/named/data/named_stats.txt";
+    memstatistics-file "/var/named/data/named_mem_stats.txt";
+    recursing-file  "/var/named/data/named.recursing";
+    secroots-file   "/var/named/data/named.secroots";
+    allow-query     { any; };
+    recursion yes;
+    forwarders { 208.67.222.222; 208.67.220.220; };
+    forward only;
+    dnssec-validation yes;
+};
+
+logging {
+    channel default_debug {
+        file "data/named.run";
+        severity dynamic;
+    };
+};
+
+zone "." IN {
+    type hint;
+    file "named.ca";
+};
+
+include "/etc/named.rfc1912.zones";
+include "/etc/named.root.key";
+NAMEDCONF
+  step_ok "named.conf written (caching-only, forwarders: 8.8.8.8, 8.8.4.4)"
+
+  systemctl enable --now named >> "$LOGDIR/bind.log" 2>&1
+  step_ok "named enabled and started"
+
+  # SELinux: named already has proper context; open firewall port
+  firewall-cmd --permanent --add-service=dns >> "$LOGDIR/bind.log" 2>&1 || true
+  firewall-cmd --reload >> "$LOGDIR/bind.log" 2>&1 || true
+  step_ok "Firewall: DNS (port 53) opened"
 }
 
 configure_ntp() {
@@ -1349,6 +1448,7 @@ main() {
   run_system_upgrade
   update_and_install_packages
   vm_detection
+  configure_bind
   configure_ntp
   configure_dhcp_kea
   configure_firewall
