@@ -1113,6 +1113,7 @@ install_python_packages() {
     "uvicorn[standard]"
     "python-multipart"
     "python-pam"
+    "aiofiles"
   )
 
   local all_ok=1
@@ -1276,13 +1277,12 @@ EOF
 <VirtualHost *:80>
     DocumentRoot "/opt/cmds-go/ui"
     LimitRequestBody 2147483648
-
+    Timeout 3600
     <Directory "/opt/cmds-go/ui">
         Options Indexes FollowSymLinks
         AllowOverride All
         Require all granted
     </Directory>
-
     # =====================================================
     # CMDS DOCS
     # =====================================================
@@ -1292,24 +1292,18 @@ EOF
         AllowOverride All
         Require all granted
     </Directory>
-
     DirectoryIndex index.html
-
     # =====================================================
     # API REVERSE PROXY
     # =====================================================
     ProxyRequests Off
     ProxyPreserveHost On
-
     ProxyPass        /api/login http://127.0.0.1:8000/api/login
     ProxyPassReverse /api/login http://127.0.0.1:8000/api/login
-
     ProxyPass        /api/auth/check http://127.0.0.1:8000/api/auth/check
     ProxyPassReverse /api/auth/check http://127.0.0.1:8000/api/auth/check
-
     ProxyPass        /api/ http://127.0.0.1:8000/
     ProxyPassReverse /api/ http://127.0.0.1:8000/
-
     # =====================================================
     # LOGGING
     # =====================================================

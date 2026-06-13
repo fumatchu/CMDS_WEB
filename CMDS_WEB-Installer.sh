@@ -194,7 +194,7 @@ while choice=$(dialog --title "CMDS-GO" \
   --menu "Select install type" 15 65 3 "${items[@]}" \
   2>&1 >/dev/tty); do
   case $choice in
-    1) /root/CMDS_WEBInstaller/CMDS_WEBInstall.sh ;;
+    1) /root/CMDS_WEBInstaller/CMDS_WEBInstall.sh ; break ;;
   esac
 done
 
