@@ -1312,7 +1312,7 @@ configure_apache_cmds() {
     ProxyPass        /api/auth/check http://127.0.0.1:8000/api/auth/check
     ProxyPassReverse /api/auth/check http://127.0.0.1:8000/api/auth/check
 
-    ProxyPass        /api/ http://127.0.0.1:8000/
+    ProxyPass        /api/ http://127.0.0.1:8000/ retry=0
     ProxyPassReverse /api/ http://127.0.0.1:8000/
 
     # =====================================================
