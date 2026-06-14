@@ -191,8 +191,27 @@ prompt_static_ip_if_dhcp() {
         nmcli con mod "$CONNECTION" ipv4.dns "$DNSSERVER"
         nmcli con mod "$CONNECTION" ipv4.dns-search "$DNSSEARCH"
         hostnamectl set-hostname "$HOSTNAME"
+
+        # Write resume marker with the expected IP so it can be validated
+        # after reboot before continuing the install.
+        echo "ip=${IPADDR%%/*}" > /root/.cmds_install_resume
+
+        # Hook /root/.bashrc so logging in as root after the reboot
+        # automatically re-launches the installer to continue where it left off.
+        if ! grep -q "# BEGIN CMDS-GO-AUTORESUME" /root/.bashrc 2>/dev/null; then
+          cat >> /root/.bashrc << 'BASHRC_EOF'
+
+# BEGIN CMDS-GO-AUTORESUME
+# Added by CMDS-GO installer — removed automatically on first login after reboot.
+if [[ -f /root/.cmds_install_resume ]]; then
+    exec bash /root/CMDS_WEBInstaller/CMDS_WEBInstall.sh
+fi
+# END CMDS-GO-AUTORESUME
+BASHRC_EOF
+        fi
+
         dialog --title "Reboot Required" \
-          --msgbox "Network configured. System will reboot.\n\nReconnect at: ${IPADDR%%/*}" 7 60
+          --msgbox "Network configured. System will reboot.\n\nLog in as root at: ${IPADDR%%/*}\nThe installer will resume automatically." 9 62
         reboot
       fi
     done
@@ -1262,10 +1281,41 @@ final_status_report() {
 # MAIN INSTALLATION FLOW
 # =============================================================
 main() {
+  # ── Resume detection (read state file early, act after interface is known) ──
+  RESUME_AFTER_NETWORK=0
+  RESUME_EXPECTED_IP=""
+  if [[ -f /root/.cmds_install_resume ]]; then
+    RESUME_AFTER_NETWORK=1
+    RESUME_EXPECTED_IP=$(grep -oP '(?<=ip=)\S+' /root/.cmds_install_resume || true)
+    rm -f /root/.cmds_install_resume
+    # Remove the auto-resume hook from .bashrc
+    sed -i '/# BEGIN CMDS-GO-AUTORESUME/,/# END CMDS-GO-AUTORESUME/d' /root/.bashrc
+  fi
+  # ─────────────────────────────────────────────────────────────────────────────
+
   check_root_and_os
   check_and_enable_selinux
-  detect_active_interface
-  prompt_static_ip_if_dhcp
+  detect_active_interface   # sets $INTERFACE
+
+  if [[ $RESUME_AFTER_NETWORK -eq 1 ]]; then
+    section "Resuming Installation"
+    step_info "Resuming after DHCP→static IP reboot"
+    # Validate the static IP is actually in place before continuing
+    CURRENT_IP=$(nmcli -g IP4.ADDRESS device show "$INTERFACE" 2>/dev/null | head -1 | cut -d/ -f1)
+    if [[ -n "$RESUME_EXPECTED_IP" && "$CURRENT_IP" == "$RESUME_EXPECTED_IP" ]]; then
+      step_ok "Static IP confirmed: ${CURRENT_IP} on ${INTERFACE}"
+    elif [[ -z "$RESUME_EXPECTED_IP" ]]; then
+      step_ok "Continuing install — network reboot complete"
+    else
+      step_fail "Expected ${RESUME_EXPECTED_IP} but ${INTERFACE} shows ${CURRENT_IP:-none}"
+      dialog --title "Network Validation Failed" \
+        --yesno "Static IP did not apply as expected.\n\nExpected: ${RESUME_EXPECTED_IP}\nFound:    ${CURRENT_IP:-none} on ${INTERFACE}\n\nContinue anyway?" 11 62
+      [[ $? -ne 0 ]] && exit 1
+    fi
+  else
+    prompt_static_ip_if_dhcp
+  fi
+
   check_internet_connectivity
   validate_and_set_hostname
   show_server_checklist
@@ -1290,6 +1340,38 @@ main() {
   install_cmds_service
   enable_cockpit
   final_status_report
+
+  # ── Cleanup installer artifacts ───────────────────────────
+  # Remove installer files from /root so nothing re-runs on next login/reboot.
+  step_info "Cleaning up installer files..."
+  rm -rf "$SRC_BASE"                          # /root/CMDS_WEBInstaller/
+  rm -f  /root/.cmds_install_resume           # state file (should already be gone)
+  # Belt-and-suspenders: remove auto-resume hook from .bashrc if still present
+  sed -i '/# BEGIN CMDS-GO-AUTORESUME/,/# END CMDS-GO-AUTORESUME/d' /root/.bashrc 2>/dev/null || true
+  step_ok "Installer files removed"
+
+  # ── Final reboot ─────────────────────────────────────────
+  # Ensures the upgraded kernel (from dnf upgrade) and all service
+  # changes take effect cleanly.
+  local server_ip
+  server_ip=$(ip -4 route get 1.1.1.1 2>/dev/null | \
+    awk '/src/{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || \
+    hostname -I | awk '{print $1}')
+
+  echo ""
+  echo -e "${GREEN}══════════════════════════════════════════════════${TEXTRESET}"
+  echo -e "${GREEN}  CMDS-GO installation complete.${TEXTRESET}"
+  echo -e "${GREEN}══════════════════════════════════════════════════${TEXTRESET}"
+  echo ""
+  echo -e "  ${CYAN}Install log:${TEXTRESET}  ${LOGDIR}/"
+  echo -e "  ${CYAN}Web UI:${TEXTRESET}       http://${server_ip}/"
+  echo -e "  ${CYAN}Cockpit:${TEXTRESET}      https://${server_ip}:9090/"
+  echo ""
+  echo -e "  Scroll up to review install output."
+  echo -e "  Log files are available after reboot at: ${LOGDIR}/"
+  echo ""
+  read -rp "  Press Enter to reboot... " _
+  reboot
 }
 
 main
