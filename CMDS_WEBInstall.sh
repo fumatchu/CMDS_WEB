@@ -1587,7 +1587,6 @@ main() {
   echo -e "  ${CYAN}Web UI:${TEXTRESET}       http://${server_ip}/"
   echo -e "  ${CYAN}Cockpit:${TEXTRESET}      https://${server_ip}:9090/"
   echo ""
-  echo -e "  Scroll up to review install output."
   echo -e "  Log files are available after reboot at: ${LOGDIR}/"
   echo ""
   read -rp "  Press Enter to reboot... " _
