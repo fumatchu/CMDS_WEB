@@ -37,7 +37,7 @@ echo -e "${CYAN}CMDS-GO${TEXTRESET} ${YELLOW}Installation${TEXTRESET}"
 step_ok()   { echo -e "  [${GREEN}✓${TEXTRESET}] $*"; }
 step_fail() { echo -e "  [${RED}✗${TEXTRESET}] $*"; }
 step_info() { echo -e "  [${YELLOW}→${TEXTRESET}] $*"; }
-section()   { clear; echo ""; echo -e "${CYAN}── $* ──${TEXTRESET}"; }
+section()   { echo ""; echo -e "${CYAN}── $* ──${TEXTRESET}"; }
 
 # =============================================================
 # VALIDATION HELPERS
@@ -126,8 +126,10 @@ check_and_enable_selinux() {
 # =============================================================
 detect_active_interface() {
   section "Network Interface"
+  clear
   dialog --backtitle "Network Setup" --title "Interface Check" \
     --infobox "Detecting active network interface..." 5 50; sleep 2
+  clear
 
   INTERFACE=$(nmcli -t -f DEVICE,TYPE,STATE device | grep "ethernet:connected" | cut -d: -f1 | head -n1)
   [[ -z "$INTERFACE" ]] && INTERFACE=$(ip -o -4 addr show up | grep -v ' lo ' | awk '{print $2}' | head -n1)
@@ -162,6 +164,7 @@ prompt_static_ip_if_dhcp() {
 
   if [[ "$IP_METHOD" == "auto" ]]; then
     step_info "DHCP detected on ${INTERFACE} — static IP required"
+    clear
     while true; do
       while true; do
         IPADDR=$(dialog --backtitle "Network Setup" --title "Static IP Required" \
@@ -243,9 +246,11 @@ check_internet_connectivity() {
   [[ $dns_ok -eq 1 ]] && step_ok "DNS resolution working" || step_fail "DNS resolution failed"
 
   if [[ $ip_ok -eq 0 || $dns_ok -eq 0 ]]; then
+    clear
     dialog --title "Network Warning" \
       --yesno "Internet connectivity issues detected.\n\nContinue anyway?" 8 55
-    [[ $? -ne 0 ]] && exit 1
+    local _nw=$?; clear
+    [[ $_nw -ne 0 ]] && exit 1
   fi
   sleep 1
 }
@@ -258,12 +263,14 @@ validate_and_set_hostname() {
   local current; current=$(hostname)
 
   if [[ "$current" == "localhost.localdomain" ]]; then
+    clear
     while true; do
       NEW_HOSTNAME=$(dialog --backtitle "Hostname Setup" --title "Set FQDN" \
         --inputbox "Current hostname is '${current}'.\nEnter FQDN (e.g., cmds.example.com):" \
         8 60 3>&1 1>&2 2>&3)
       if validate_fqdn "$NEW_HOSTNAME" && check_hostname_in_domain "$NEW_HOSTNAME"; then
         hostnamectl set-hostname "$NEW_HOSTNAME"
+        clear
         step_ok "Hostname set to: ${NEW_HOSTNAME}"
         break
       else
@@ -305,6 +312,7 @@ Have ready (if enabling optional services):
   5. DHCP domain suffix
 
 *********************************************" 26 65
+  clear
 }
 
 # =============================================================
@@ -439,6 +447,7 @@ enable_repos() {
 
   local PIPE; PIPE=$(mktemp -u); mkfifo "$PIPE"
 
+  clear
   dialog --backtitle "Repository Setup" --title "Enabling Repositories" \
     --gauge "Initializing..." 10 70 0 < "$PIPE" &
 
@@ -459,8 +468,8 @@ enable_repos() {
     echo "100"; echo "XXX"; echo "Repositories enabled."; echo "XXX"
   } > "$PIPE"
   wait; rm -f "$PIPE"
-
   clear
+
   if [[ $RC -eq 0 ]]; then
     step_ok "EPEL + CRB enabled"
   else
@@ -488,6 +497,7 @@ run_system_upgrade() {
     rm -f "$PIPE"; return
   fi
 
+  clear
   dialog --backtitle "System Upgrade" --title "Upgrading Packages" \
     --gauge "Starting system upgrade..." 10 70 0 < "$PIPE" &
 
@@ -502,8 +512,8 @@ run_system_upgrade() {
     echo "100"; echo "XXX"; echo "Upgrade complete."; echo "XXX"
   } > "$PIPE"
   wait; rm -f "$PIPE"
-
   clear
+
   step_ok "System packages upgraded (${TOTAL} packages)"
   sleep 1
 }
@@ -533,6 +543,7 @@ update_and_install_packages() {
   local TOTAL=${#REQUIRED_PKGS[@]} COUNT=0
   local PIPE; PIPE=$(mktemp -u); mkfifo "$PIPE"
 
+  clear
   dialog --backtitle "Package Install" --title "Installing Required Packages" \
     --gauge "Preparing..." 10 70 0 < "$PIPE" &
 
@@ -546,8 +557,8 @@ update_and_install_packages() {
     echo "100"; echo "XXX"; echo "Packages installed."; echo "XXX"
   } > "$PIPE"
   wait; rm -f "$PIPE"
-
   clear
+
   step_ok "Required packages installed"
   sleep 1
 }
@@ -712,9 +723,11 @@ _validate_time_sync() {
     step_ok "Time synchronized"
   else
     step_fail "NTP sync failed after 3 attempts"
+    clear
     dialog --title "NTP Warning" \
       --yesno "Time sync failed after 3 attempts.\nContinue anyway?" 8 55
-    [[ $? -ne 0 ]] && return 1
+    local _ntp=$?; clear
+    [[ $_ntp -ne 0 ]] && return 1
   fi
   return 0
 }
@@ -1398,6 +1411,7 @@ enable_cockpit() {
 # STEP 28 — FINAL STATUS REPORT
 # =============================================================
 final_status_report() {
+  clear
   section "Installation Summary"
   echo ""
 
