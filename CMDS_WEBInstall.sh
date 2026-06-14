@@ -115,7 +115,8 @@ check_and_enable_selinux() {
 # =============================================================
 detect_active_interface() {
   section "Network Interface"
-  step_info "Detecting active network interface..."
+  dialog --backtitle "Network Setup" --title "Interface Check" \
+    --infobox "Detecting active network interface..." 5 50; sleep 2
 
   INTERFACE=$(nmcli -t -f DEVICE,TYPE,STATE device | grep "ethernet:connected" | cut -d: -f1 | head -n1)
   [[ -z "$INTERFACE" ]] && INTERFACE=$(ip -o -4 addr show up | grep -v ' lo ' | awk '{print $2}' | head -n1)
@@ -184,23 +185,12 @@ prompt_static_ip_if_dhcp() {
         13 60
 
       if [[ $? -eq 0 ]]; then
-        nmcli con mod "$CONNECTION" ipv4.addresses "$IPADDR" ipv4.gateway "$GW" ipv4.method manual ipv4.dns "$DNSSERVER" ipv4.dns-search "$DNSSEARCH"
+        nmcli con mod "$CONNECTION" ipv4.address "$IPADDR"
+        nmcli con mod "$CONNECTION" ipv4.gateway "$GW"
+        nmcli con mod "$CONNECTION" ipv4.method manual
+        nmcli con mod "$CONNECTION" ipv4.dns "$DNSSERVER"
+        nmcli con mod "$CONNECTION" ipv4.dns-search "$DNSSEARCH"
         hostnamectl set-hostname "$HOSTNAME"
-
-        # Inject auto-resume into .bash_profile so installer continues after reboot
-        PROFILE="/root/.bash_profile"
-        INSTALLER="/root/CMDS_WEBInstaller/CMDS_WEBInstall.sh"
-        if ! grep -q "CMDS_WEBInstall" "$PROFILE" 2>/dev/null; then
-          cat >> "$PROFILE" << 'BASHEOF'
-
-## CMDS-GO Installer — auto-resume after reboot ##
-if [[ $- == *i* ]]; then
-  /root/CMDS_WEBInstaller/CMDS_WEBInstall.sh
-fi
-BASHEOF
-        fi
-        chmod +x "$INSTALLER" 2>/dev/null || true
-
         dialog --title "Reboot Required" \
           --msgbox "Network configured. System will reboot.\n\nReconnect at: ${IPADDR%%/*}" 7 60
         reboot
@@ -247,8 +237,7 @@ validate_and_set_hostname() {
         step_ok "Hostname set to: ${NEW_HOSTNAME}"
         break
       else
-        step_fail "Invalid FQDN — must be host.domain.tld format. Try again."
-        sleep 2
+        dialog --msgbox "Invalid FQDN. Try again." 6 50
       fi
     done
   else
@@ -261,30 +250,30 @@ validate_and_set_hostname() {
 # STEP 7 — PRE-INSTALL CHECKLIST
 # =============================================================
 show_server_checklist() {
-  clear
-  echo ""
-  echo -e "${CYAN}  ╔══════════════════════════════════════════════╗${TEXTRESET}"
-  echo -e "${CYAN}  ║         CMDS-GO Server Installation          ║${TEXTRESET}"
-  echo -e "${CYAN}  ╚══════════════════════════════════════════════╝${TEXTRESET}"
-  echo ""
-  echo -e "  This installer will set up:"
-  echo -e "    ${GREEN}✓${TEXTRESET}  Base system packages + security (fail2ban, SELinux)"
-  echo -e "    ${GREEN}✓${TEXTRESET}  TFTP + HTTP image server for IOS-XE firmware"
-  echo -e "    ${GREEN}✓${TEXTRESET}  FastAPI backend (cmds-go service)"
-  echo -e "    ${GREEN}✓${TEXTRESET}  Apache reverse proxy for the web UI"
-  echo -e "    ${GREEN}✓${TEXTRESET}  Cockpit web management console"
-  echo -e "    ${YELLOW}→${TEXTRESET}  NTP time sync           ${YELLOW}(optional — you will be prompted)${TEXTRESET}"
-  echo -e "    ${YELLOW}→${TEXTRESET}  DHCP server via Kea     ${YELLOW}(optional — you will be prompted)${TEXTRESET}"
-  echo ""
-  echo -e "  ${YELLOW}Have ready if enabling optional services:${TEXTRESET}"
-  echo -e "    1. NTP server IPs or FQDNs (up to 3)"
-  echo -e "    2. NTP allow subnet in CIDR  (e.g., 192.168.1.0/24)"
-  echo -e "    3. DHCP range start/end IPs"
-  echo -e "    4. DHCP default gateway IP"
-  echo -e "    5. DHCP domain suffix"
-  echo ""
-  echo -e "  Press ${CYAN}Enter${TEXTRESET} to begin installation..."
-  read -r
+  dialog --backtitle "CMDS-GO Installer" \
+    --title "Pre-Installation Checklist" \
+    --msgbox "\
+*********************************************
+  CMDS-GO Server Installation
+*********************************************
+
+This installer will set up:
+  • Base system packages + security (fail2ban, SELinux)
+  • NTP time sync (optional)
+  • DHCP server via Kea (optional)
+  • TFTP + HTTP image server for IOS-XE firmware
+  • FastAPI backend (cmds-go service)
+  • Apache reverse proxy for the web UI
+  • Cockpit web management console
+
+Have ready (if enabling optional services):
+  1. NTP server IPs or FQDNs (up to 3)
+  2. NTP allow subnet in CIDR (e.g., 192.168.1.0/24)
+  3. DHCP range start/end IPs
+  4. DHCP default gateway IP
+  5. DHCP domain suffix
+
+*********************************************" 26 65
 }
 
 # =============================================================
@@ -295,34 +284,16 @@ enable_repos() {
   local log="$LOGDIR/repo-setup.log"
   : > "$log"
 
-  local PIPE; PIPE=$(mktemp -u); mkfifo "$PIPE"
-
-  clear
-  dialog --backtitle "Repository Setup" --title "Enabling Repositories" \
-    --gauge "Preparing..." 10 70 0 < "$PIPE" &
-
-  local rc=0
+  step_info "Enabling EPEL and CRB repositories..."
   {
-    echo "10"; echo "XXX"; echo "Installing EPEL release..."; echo "XXX"
-    dnf -y install epel-release --setopt=install_weak_deps=False --color=never >>"$log" 2>&1 || rc=1
-
-    echo "40"; echo "XXX"; echo "Installing dnf-plugins-core..."; echo "XXX"
+    dnf -y install epel-release --setopt=install_weak_deps=False --color=never >>"$log" 2>&1
     dnf -y install dnf-plugins-core --setopt=install_weak_deps=False --color=never >>"$log" 2>&1 || true
-
-    echo "65"; echo "XXX"; echo "Enabling CRB repository..."; echo "XXX"
     dnf config-manager --set-enabled crb --color=never >>"$log" 2>&1 || true
+    dnf -y makecache --refresh --color=never >>"$log" 2>&1
+  }
 
-    echo "80"; echo "XXX"; echo "Refreshing package cache (this may take a moment)..."; echo "XXX"
-    dnf -y makecache --refresh --color=never >>"$log" 2>&1 || rc=1
-
-    echo "100"; echo "XXX"; echo "Repository setup complete."; echo "XXX"
-  } > "$PIPE"
-  wait; rm -f "$PIPE"
-
-  clear
-  section "Repository Setup"
-  if [[ $rc -eq 0 ]]; then
-    step_ok "EPEL + CRB enabled and cache refreshed"
+  if [[ $? -eq 0 ]]; then
+    step_ok "EPEL + CRB enabled"
   else
     step_fail "Repo setup had errors — see ${log}"
   fi
@@ -348,7 +319,6 @@ run_system_upgrade() {
     rm -f "$PIPE"; return
   fi
 
-  clear
   dialog --backtitle "System Upgrade" --title "Upgrading Packages" \
     --gauge "Starting system upgrade..." 10 70 0 < "$PIPE" &
 
@@ -364,8 +334,6 @@ run_system_upgrade() {
   } > "$PIPE"
   wait; rm -f "$PIPE"
 
-  clear
-  section "System Upgrade"
   step_ok "System packages upgraded (${TOTAL} packages)"
   sleep 1
 }
@@ -385,7 +353,7 @@ update_and_install_packages() {
     net-tools dmidecode ipcalc bind-utils iotop zip
     yum-utils curl wget dnf-automatic dnf-plugins-core
     util-linux htop expect iptraf-ng mc
-    httpd mod_ssl mod_proxy_html
+    httpd
     python3 python3-pip pam-devel
     tftp-server acl
     policycoreutils-python-utils
@@ -395,7 +363,6 @@ update_and_install_packages() {
   local TOTAL=${#REQUIRED_PKGS[@]} COUNT=0
   local PIPE; PIPE=$(mktemp -u); mkfifo "$PIPE"
 
-  clear
   dialog --backtitle "Package Install" --title "Installing Required Packages" \
     --gauge "Preparing..." 10 70 0 < "$PIPE" &
 
@@ -410,8 +377,6 @@ update_and_install_packages() {
   } > "$PIPE"
   wait; rm -f "$PIPE"
 
-  clear
-  section "Required Packages"
   step_ok "Required packages installed"
   sleep 1
 }
@@ -440,145 +405,6 @@ vm_detection() {
     step_ok "No hypervisor guest tools needed (physical or unsupported platform)"
   fi
   sleep 1
-}
-
-# =============================================================
-service_menu_checklist() {
-  local BACKTITLE="Service Installer"
-  local TITLE="Install/Configure Services"
-  # Single-shot checklist (no loop-back)
-  local selection
-  selection=$(dialog --backtitle "$BACKTITLE" --title "$TITLE" --checklist \
-"Space = toggle; Enter = continue. You can pick more than one.
-Select \"Do not install any services (continue)\" to skip and move on." 19 80 8 \
-    BIND "Bind DNS (caching-only)"                   OFF \
-    KEA  "DHCP (Kea)"                                OFF \
-    NTP  "NTP (Chrony)"                              OFF \
-    NONE "Do not install any services (continue)"    OFF \
-    3>&1 1>&2 2>&3)
-  echo "$selection"
-}
-
-# UPFRONT QUESTIONS — ask everything before installation begins
-# =============================================================
-gather_optional_config() {
-  section "Optional Services Setup"
-  echo ""
-  step_info "Select services to install, then answer their setup questions."
-  echo ""
-  sleep 1
-
-  INSTALL_NTP=0
-  INSTALL_KEA=0
-  INSTALL_BIND=0
-
-  local selection rc
-  selection=$(service_menu_checklist)
-  rc=$?
-  clear
-
-  # Cancel/Esc or NONE → skip all services
-  if [[ $rc -ne 0 ]] || echo "$selection" | grep -qw "NONE"; then
-    step_info "No optional services selected — skipping."
-    echo ""
-    echo -e "  Press ${CYAN}Enter${TEXTRESET} to begin unattended installation..."
-    read -r
-    return 0
-  fi
-
-  # Set flags from selection
-  echo "$selection" | grep -qw "NTP"  && INSTALL_NTP=1
-  echo "$selection" | grep -qw "KEA"  && INSTALL_KEA=1
-  echo "$selection" | grep -qw "BIND" && INSTALL_BIND=1
-
-  # ── NTP follow-up questions ───────────────────────────────────────────────────
-  if [[ $INSTALL_NTP -eq 1 ]]; then
-    _prompt_ntp_servers || INSTALL_NTP=0
-    [[ $INSTALL_NTP -eq 1 ]] && { _prompt_ntp_allow || INSTALL_NTP=0; }
-  fi
-
-  # ── KEA DHCP follow-up questions ─────────────────────────────────────────────
-  if [[ $INSTALL_KEA -eq 1 ]]; then
-
-    # Detect interface details
-    local iface inet4_line
-    iface=$(nmcli -t -f DEVICE,STATE device status | awk -F: '$2=="connected"{print $1; exit}')
-    inet4_line=$(nmcli -g IP4.ADDRESS device show "$iface" | head -n1)
-    KEA_IFACE="$iface"
-    KEA_INET4="${inet4_line%/*}"
-    KEA_CIDR="${inet4_line#*/}"
-    KEA_NETWORK=$(network_from_ip_cidr "$KEA_INET4" "$KEA_CIDR")
-    KEA_NETMASK=$(cidr_to_netmask "$KEA_CIDR")
-    local DEF_SUFFIX; DEF_SUFFIX="$(hostname -d 2>/dev/null || true)"
-
-    while true; do
-      while true; do
-        POOL_START=$(dialog --backtitle "Kea DHCP" --stdout \
-          --inputbox "DHCP range START IP (in ${KEA_NETWORK}/${KEA_CIDR}):" 8 70)
-        is_valid_ip "$POOL_START" && ip_in_cidr "$POOL_START" "$KEA_NETWORK" "$KEA_CIDR" && break
-        dialog --msgbox "Invalid or out-of-range IP." 6 40
-      done
-      while true; do
-        POOL_END=$(dialog --backtitle "Kea DHCP" --stdout \
-          --inputbox "DHCP range END IP (in ${KEA_NETWORK}/${KEA_CIDR}):" 8 70)
-        is_valid_ip "$POOL_END" && ip_in_cidr "$POOL_END" "$KEA_NETWORK" "$KEA_CIDR" && \
-          (( $(ip_to_int "$POOL_START") <= $(ip_to_int "$POOL_END") )) && break
-        dialog --msgbox "Invalid, out-of-range, or less than start IP." 6 50
-      done
-      while true; do
-        KEA_ROUTER=$(dialog --backtitle "Kea DHCP" --stdout \
-          --inputbox "Default gateway for clients (in ${KEA_NETWORK}/${KEA_CIDR}):" 8 70)
-        is_valid_ip "$KEA_ROUTER" && ip_in_cidr "$KEA_ROUTER" "$KEA_NETWORK" "$KEA_CIDR" && break
-        dialog --msgbox "Invalid or out-of-range gateway." 6 40
-      done
-      while true; do
-        KEA_DOM_SUFFIX=$(dialog --backtitle "Kea DHCP" --stdout \
-          --inputbox "Domain suffix for clients:" 8 70 "${DEF_SUFFIX}")
-        is_valid_domain "$KEA_DOM_SUFFIX" && break
-        dialog --msgbox "Invalid domain suffix." 6 40
-      done
-      KEA_DNS_SERVERS=$(dialog --backtitle "Kea DHCP" --stdout \
-        --inputbox "DNS servers (comma-separated, default: ${KEA_INET4}):" 8 70 "$KEA_INET4")
-      [[ -z "$KEA_DNS_SERVERS" ]] && KEA_DNS_SERVERS="$KEA_INET4"
-      KEA_SUBNET_DESC=$(dialog --backtitle "Kea DHCP" --stdout \
-        --inputbox "Friendly description for this scope:" 8 70)
-
-      dialog --backtitle "Kea DHCP" --title "Confirm DHCP Settings" --yesno \
-"Interface:  ${KEA_IFACE}
-Server IP:  ${KEA_INET4}/${KEA_CIDR}
-Subnet:     ${KEA_NETWORK}/${KEA_CIDR}
-Range:      ${POOL_START}  →  ${POOL_END}
-Gateway:    ${KEA_ROUTER}
-DNS:        ${KEA_DNS_SERVERS}
-Domain:     ${KEA_DOM_SUFFIX}
-Desc:       ${KEA_SUBNET_DESC}
-
-Apply these settings?" 18 65 && break
-    done
-  fi
-
-  # ── Summary before unattended run ────────────────────────────────────────────
-  clear
-  section "Configuration Summary"
-  echo ""
-  if [[ $INSTALL_BIND -eq 1 ]]; then
-    step_ok "BIND DNS: will configure (caching-only)"
-  else
-    step_info "BIND DNS: skipped"
-  fi
-  if [[ $INSTALL_NTP -eq 1 ]]; then
-    step_ok "NTP: will configure (servers: ${NTP_SERVERS})"
-  else
-    step_info "NTP: skipped"
-  fi
-  if [[ $INSTALL_KEA -eq 1 ]]; then
-    step_ok "KEA DHCP: will configure (range: ${POOL_START} → ${POOL_END})"
-  else
-    step_info "KEA DHCP: skipped"
-  fi
-  echo ""
-  echo -e "  Press ${CYAN}Enter${TEXTRESET} to begin unattended installation..."
-  read -r
 }
 
 # =============================================================
@@ -648,75 +474,14 @@ _validate_time_sync() {
   return 0
 }
 
-# =============================================================
-# STEP 12a — BIND DNS (caching-only, optional)
-# =============================================================
-configure_bind() {
-  section "BIND DNS (caching-only)"
-  if [[ "${INSTALL_BIND:-0}" -eq 0 ]]; then
-    step_info "BIND DNS configuration skipped"
-    return 0
-  fi
-
-  step_info "Installing bind and bind-utils..."
-  dnf install -y bind bind-utils >> "$LOGDIR/bind.log" 2>&1
-  step_ok "bind installed"
-
-  # Caching-only: listen on loopback + server IP, allow-query from any
-  local server_ip
-  server_ip=$(nmcli -g IP4.ADDRESS device show \
-    "$(nmcli -t -f DEVICE,STATE device status | awk -F: '$2=="connected"{print $1; exit}')" \
-    | head -n1 | cut -d/ -f1)
-
-  cat > /etc/named.conf << NAMEDCONF
-options {
-    listen-on port 53 { 127.0.0.1; ${server_ip}; };
-    listen-on-v6 port 53 { ::1; };
-    directory       "/var/named";
-    dump-file       "/var/named/data/cache_dump.db";
-    statistics-file "/var/named/data/named_stats.txt";
-    memstatistics-file "/var/named/data/named_mem_stats.txt";
-    recursing-file  "/var/named/data/named.recursing";
-    secroots-file   "/var/named/data/named.secroots";
-    allow-query     { any; };
-    recursion yes;
-    forwarders { 208.67.222.222; 208.67.220.220; };
-    forward only;
-    dnssec-validation yes;
-};
-
-logging {
-    channel default_debug {
-        file "data/named.run";
-        severity dynamic;
-    };
-};
-
-zone "." IN {
-    type hint;
-    file "named.ca";
-};
-
-include "/etc/named.rfc1912.zones";
-include "/etc/named.root.key";
-NAMEDCONF
-  step_ok "named.conf written (caching-only, forwarders: 8.8.8.8, 8.8.4.4)"
-
-  systemctl enable --now named >> "$LOGDIR/bind.log" 2>&1
-  step_ok "named enabled and started"
-
-  # SELinux: named already has proper context; open firewall port
-  firewall-cmd --permanent --add-service=dns >> "$LOGDIR/bind.log" 2>&1 || true
-  firewall-cmd --reload >> "$LOGDIR/bind.log" 2>&1 || true
-  step_ok "Firewall: DNS (port 53) opened"
-}
-
 configure_ntp() {
   section "NTP / Chrony"
-  if [[ "${INSTALL_NTP:-0}" -eq 0 ]]; then
-    step_info "NTP configuration skipped"
-    return 0
-  fi
+  dialog --backtitle "Configure NTP" --title "NTP Setup" \
+    --yesno "Configure Chrony NTP server on this system?" 7 55
+  [[ $? -ne 0 ]] && { step_info "NTP configuration skipped"; return 0; }
+
+  _prompt_ntp_servers || { step_info "NTP configuration cancelled"; return 0; }
+  _prompt_ntp_allow   || { step_info "NTP allow-network cancelled"; return 0; }
   _update_chrony_config
   _validate_time_sync
   sleep 1
@@ -728,10 +493,9 @@ configure_ntp() {
 configure_dhcp_kea() {
   section "DHCP Server (Kea)"
 
-  if [[ "${INSTALL_KEA:-0}" -eq 0 ]]; then
-    step_info "DHCP installation skipped"
-    return 0
-  fi
+  dialog --backtitle "DHCP Server" --title "Kea DHCP" \
+    --yesno "Install and configure Kea DHCP on this server?" 7 55
+  [[ $? -ne 0 ]] && { step_info "DHCP installation skipped"; return 0; }
 
   local log="$LOGDIR/kea-install.log"
   : > "$log"
@@ -746,15 +510,61 @@ configure_dhcp_kea() {
   fi
   step_ok "Kea DHCP installed"
 
-  # Use pre-gathered variables from gather_optional_config()
-  local iface="$KEA_IFACE"
-  local INET4="$KEA_INET4"
-  local CIDR="$KEA_CIDR"
-  local NETWORK="$KEA_NETWORK"
-  local ROUTER="$KEA_ROUTER"
-  local DOM_SUFFIX="$KEA_DOM_SUFFIX"
-  local DNS_SERVERS="$KEA_DNS_SERVERS"
-  local SUBNET_DESC="$KEA_SUBNET_DESC"
+  # --- Gather scope settings ---
+  local iface inet4_line INET4 CIDR NETWORK NETMASK
+  iface=$(nmcli -t -f DEVICE,STATE device status | awk -F: '$2=="connected"{print $1; exit}')
+  inet4_line=$(nmcli -g IP4.ADDRESS device show "$iface" | head -n1)
+  INET4=${inet4_line%/*}; CIDR=${inet4_line#*/}
+  NETWORK=$(network_from_ip_cidr "$INET4" "$CIDR")
+  NETMASK=$(cidr_to_netmask "$CIDR")
+
+  local POOL_START POOL_END ROUTER DOM_SUFFIX SEARCH_DOMAIN DNS_SERVERS SUBNET_DESC
+  local DEF_SUFFIX; DEF_SUFFIX="$(hostname -d 2>/dev/null || true)"
+
+  while true; do
+    while true; do
+      POOL_START=$(dialog --backtitle "Kea DHCP" --stdout \
+        --inputbox "DHCP range START IP (in ${NETWORK}/${CIDR}):" 8 70)
+      is_valid_ip "$POOL_START" && ip_in_cidr "$POOL_START" "$NETWORK" "$CIDR" && break
+      dialog --msgbox "Invalid or out-of-range IP." 6 40
+    done
+    while true; do
+      POOL_END=$(dialog --backtitle "Kea DHCP" --stdout \
+        --inputbox "DHCP range END IP (in ${NETWORK}/${CIDR}):" 8 70)
+      is_valid_ip "$POOL_END" && ip_in_cidr "$POOL_END" "$NETWORK" "$CIDR" && \
+        (( $(ip_to_int "$POOL_START") <= $(ip_to_int "$POOL_END") )) && break
+      dialog --msgbox "Invalid, out-of-range, or less than start IP." 6 50
+    done
+    while true; do
+      ROUTER=$(dialog --backtitle "Kea DHCP" --stdout \
+        --inputbox "Default gateway for clients (in ${NETWORK}/${CIDR}):" 8 70)
+      is_valid_ip "$ROUTER" && ip_in_cidr "$ROUTER" "$NETWORK" "$CIDR" && break
+      dialog --msgbox "Invalid or out-of-range gateway." 6 40
+    done
+    while true; do
+      DOM_SUFFIX=$(dialog --backtitle "Kea DHCP" --stdout \
+        --inputbox "Domain suffix for clients:" 8 70 "${DEF_SUFFIX}")
+      is_valid_domain "$DOM_SUFFIX" && break
+      dialog --msgbox "Invalid domain suffix." 6 40
+    done
+    DNS_SERVERS=$(dialog --backtitle "Kea DHCP" --stdout \
+      --inputbox "DNS servers (comma-separated, default: ${INET4}):" 8 70 "$INET4")
+    [[ -z "$DNS_SERVERS" ]] && DNS_SERVERS="$INET4"
+    SUBNET_DESC=$(dialog --backtitle "Kea DHCP" --stdout \
+      --inputbox "Friendly description for this scope:" 8 70)
+
+    dialog --backtitle "Kea DHCP" --title "Confirm Kea DHCP Settings" --yesno \
+"Interface:  ${iface}
+Server IP:  ${INET4}/${CIDR}
+Subnet:     ${NETWORK}/${CIDR}
+Range:      ${POOL_START}  →  ${POOL_END}
+Gateway:    ${ROUTER}
+DNS:        ${DNS_SERVERS}
+Domain:     ${DOM_SUFFIX}
+Desc:       ${SUBNET_DESC}
+
+Apply these settings?" 18 65 && break
+  done
 
   local KEA_CONF="/etc/kea/kea-dhcp4.conf"
   mkdir -p /etc/kea
@@ -1113,7 +923,6 @@ install_python_packages() {
     "uvicorn[standard]"
     "python-multipart"
     "python-pam"
-    "aiofiles"
   )
 
   local all_ok=1
@@ -1266,23 +1075,22 @@ configure_apache_cmds() {
   local CONF="/etc/httpd/conf.d/cmds-go.conf"
   : > "$log"
 
-  # Ensure proxy modules are loaded
-  cat > /etc/httpd/conf.modules.d/00-proxy.conf <<'EOF'
-LoadModule proxy_module modules/mod_proxy.so
-LoadModule proxy_http_module modules/mod_proxy_http.so
-LoadModule proxy_html_module modules/mod_proxy_html.so
-EOF
-
   cat > "$CONF" <<'APACHECONF'
 <VirtualHost *:80>
     DocumentRoot "/opt/cmds-go/ui"
     LimitRequestBody 2147483648
-    Timeout 3600
+
+    # Disable mod_reqtimeout body limit — allows large IOS-XE uploads (1GB+)
+    # over slow/routed paths without Apache killing the connection mid-transfer.
+    # (Default body=20,MinRate=500 drops connections on I226-V NIC + inter-VLAN paths)
+    RequestReadTimeout body=0
+
     <Directory "/opt/cmds-go/ui">
         Options Indexes FollowSymLinks
         AllowOverride All
         Require all granted
     </Directory>
+
     # =====================================================
     # CMDS DOCS
     # =====================================================
@@ -1292,18 +1100,24 @@ EOF
         AllowOverride All
         Require all granted
     </Directory>
+
     DirectoryIndex index.html
+
     # =====================================================
     # API REVERSE PROXY
     # =====================================================
     ProxyRequests Off
     ProxyPreserveHost On
+
     ProxyPass        /api/login http://127.0.0.1:8000/api/login
     ProxyPassReverse /api/login http://127.0.0.1:8000/api/login
+
     ProxyPass        /api/auth/check http://127.0.0.1:8000/api/auth/check
     ProxyPassReverse /api/auth/check http://127.0.0.1:8000/api/auth/check
+
     ProxyPass        /api/ http://127.0.0.1:8000/
     ProxyPassReverse /api/ http://127.0.0.1:8000/
+
     # =====================================================
     # LOGGING
     # =====================================================
@@ -1455,12 +1269,10 @@ main() {
   check_internet_connectivity
   validate_and_set_hostname
   show_server_checklist
-  gather_optional_config
   enable_repos
   run_system_upgrade
   update_and_install_packages
   vm_detection
-  configure_bind
   configure_ntp
   configure_dhcp_kea
   configure_firewall
@@ -1478,9 +1290,6 @@ main() {
   install_cmds_service
   enable_cockpit
   final_status_report
-
-  # Remove auto-resume from .bash_profile now that install is complete
-  sed -i '/## CMDS-GO Installer — auto-resume after reboot ##/,/^fi$/d' /root/.bash_profile 2>/dev/null || true
 }
 
 main
