@@ -1408,7 +1408,44 @@ enable_cockpit() {
 }
 
 # =============================================================
-# STEP 28 — FINAL STATUS REPORT
+# STEP 28 — CMDS CONSOLE AUTOSTART
+# Sets permissions on the admin console script and wires it
+# into /root/.bash_profile so root SSH logins land in the
+# console automatically.
+# =============================================================
+configure_cmds_console() {
+  section "CMDS Console Autostart"
+
+  local CONSOLE_SCRIPT="/opt/cmds-go/console/cmds-console.sh"
+
+  if [[ ! -f "$CONSOLE_SCRIPT" ]]; then
+    step_fail "Console script not found: ${CONSOLE_SCRIPT} — skipping"
+    return 0
+  fi
+
+  chown root:root "$CONSOLE_SCRIPT"
+  chmod 700 "$CONSOLE_SCRIPT"
+  step_ok "Permissions set on ${CONSOLE_SCRIPT}"
+
+  # Add autostart block to /root/.bash_profile (idempotent)
+  if ! grep -q "# BEGIN CMDS-GO-CONSOLE" /root/.bash_profile 2>/dev/null; then
+    cat >> /root/.bash_profile << 'PROFILE_EOF'
+
+# BEGIN CMDS-GO-CONSOLE
+# Added by CMDS-GO installer — launches admin console on interactive SSH login.
+if tty -s && [[ -x /opt/cmds-go/console/cmds-console.sh ]]; then
+    /opt/cmds-go/console/cmds-console.sh
+fi
+# END CMDS-GO-CONSOLE
+PROFILE_EOF
+    step_ok "Console autostart added to /root/.bash_profile"
+  else
+    step_ok "Console autostart already present in /root/.bash_profile"
+  fi
+}
+
+# =============================================================
+# STEP 29 — FINAL STATUS REPORT
 # =============================================================
 final_status_report() {
   clear
@@ -1496,9 +1533,9 @@ main() {
 
   check_internet_connectivity
   validate_and_set_hostname
+  show_server_checklist     # welcome + "have these ready" notice BEFORE service selection
   service_menu_checklist    # operator picks optional services
   gather_service_config     # all questions asked NOW — install is unattended after this
-  show_server_checklist     # informational summary before the unattended phase begins
   enable_repos
   run_system_upgrade
   update_and_install_packages
@@ -1520,6 +1557,7 @@ main() {
   configure_apache_cmds
   install_cmds_service
   enable_cockpit
+  configure_cmds_console
   final_status_report
 
   # ── Cleanup installer artifacts ───────────────────────────
