@@ -1132,8 +1132,9 @@ install_python_packages() {
     fi
   done
 
-  # meraki SDK (separate — don't conflict with system requests)
-  python3 -m pip install -U meraki >>"$log" 2>&1
+  # meraki SDK — use --ignore-installed so pip doesn't try to uninstall
+  # the RPM-managed 'requests' package (which has no RECORD file and blocks upgrade)
+  python3 -m pip install meraki --ignore-installed >>"$log" 2>&1
   [[ $? -eq 0 ]] && step_ok "pip install meraki" || step_fail "pip install meraki failed"
 
   [[ $all_ok -eq 1 ]] && step_ok "All Python packages installed" || step_fail "Some Python packages failed — see ${log}"
