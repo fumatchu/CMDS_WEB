@@ -14,6 +14,17 @@ INSTALL_BASE="/opt/cmds-go"
 LOGDIR="/var/log/cmds-installer"
 mkdir -p "$LOGDIR"
 
+# Optional service install flags (set by service_menu_checklist)
+INSTALL_BIND=0
+INSTALL_NTP=0
+INSTALL_DHCP=0
+
+# Pre-gathered config vars (set by gather_service_config, used during unattended install)
+BIND_ALLOW_NET=""
+DHCP_IFACE="" DHCP_INET4="" DHCP_CIDR="" DHCP_NETWORK="" DHCP_NETMASK=""
+DHCP_POOL_START="" DHCP_POOL_END="" DHCP_ROUTER="" DHCP_DOM_SUFFIX=""
+DHCP_DNS_SERVERS="" DHCP_SUBNET_DESC=""
+
 clear
 echo -e "${CYAN}CMDS-GO${TEXTRESET} ${YELLOW}Installation${TEXTRESET}"
 
@@ -26,7 +37,7 @@ echo -e "${CYAN}CMDS-GO${TEXTRESET} ${YELLOW}Installation${TEXTRESET}"
 step_ok()   { echo -e "  [${GREEN}✓${TEXTRESET}] $*"; }
 step_fail() { echo -e "  [${RED}✗${TEXTRESET}] $*"; }
 step_info() { echo -e "  [${YELLOW}→${TEXTRESET}] $*"; }
-section()   { echo ""; echo -e "${CYAN}── $* ──${TEXTRESET}"; }
+section()   { clear; echo ""; echo -e "${CYAN}── $* ──${TEXTRESET}"; }
 
 # =============================================================
 # VALIDATION HELPERS
@@ -269,6 +280,7 @@ validate_and_set_hostname() {
 # STEP 7 — PRE-INSTALL CHECKLIST
 # =============================================================
 show_server_checklist() {
+  clear
   dialog --backtitle "CMDS-GO Installer" \
     --title "Pre-Installation Checklist" \
     --msgbox "\
@@ -296,6 +308,128 @@ Have ready (if enabling optional services):
 }
 
 # =============================================================
+# SERVICE SELECTION CHECKLIST
+# Matches CMDS2Install.sh service_menu_checklist() format.
+#   - Bind DNS (caching-only)
+#   - NTP (Chrony)
+#   - DHCP (Kea)
+#   - NONE (continue without optional services)
+# All questions are gathered UPFRONT before installation begins
+# so the rest of the install runs completely unattended.
+# =============================================================
+service_menu_checklist() {
+  clear
+  local BACKTITLE="Service Installer"
+  local TITLE="Install/Configure Services"
+
+  # Single-shot checklist (no loop-back)
+  local selection
+  selection=$(dialog --backtitle "$BACKTITLE" --title "$TITLE" --checklist \
+"Space = toggle; Enter = continue. You can pick more than one.
+Select \"Do not install any services (continue)\" to skip and move on." 19 80 8 \
+    BIND "Bind DNS (caching-only)"                   OFF \
+    KEA  "DHCP (Kea)"                                OFF \
+    NTP  "NTP (Chrony)"                              OFF \
+    NONE "Do not install any services (continue)"    OFF \
+    3>&1 1>&2 2>&3)
+
+  # shellcheck disable=SC2206
+  local rc=$?
+  [[ $rc -ne 0 ]] && return 0  # ESC/Cancel → continue main installer
+
+  [[ "$selection" == *BIND* ]] && INSTALL_BIND=1
+  [[ "$selection" == *KEA*  ]] && INSTALL_DHCP=1
+  [[ "$selection" == *NTP*  ]] && INSTALL_NTP=1
+  # NONE selected (or nothing) → all flags stay 0
+}
+
+# =============================================================
+# GATHER ALL SERVICE CONFIG UPFRONT
+# Runs immediately after service_menu_checklist.
+# Collects every answer needed before touching the system,
+# so the rest of the install is fully unattended.
+# =============================================================
+gather_service_config() {
+  [[ $INSTALL_BIND -eq 0 && $INSTALL_NTP -eq 0 && $INSTALL_DHCP -eq 0 ]] && return 0
+
+  # ── BIND DNS ─────────────────────────────────────────────
+  if [[ $INSTALL_BIND -eq 1 ]]; then
+    while true; do
+      BIND_ALLOW_NET=$(dialog --backtitle "BIND DNS" --title "Allow Network" \
+        --inputbox "Enter CIDR range to allow DNS queries from (e.g., 192.168.1.0/24):" \
+        9 70 3>&1 1>&2 2>&3)
+      [[ $? -ne 0 ]] && { INSTALL_BIND=0; break; }
+      validate_cidr "$BIND_ALLOW_NET" && break
+      dialog --msgbox "Invalid CIDR format. Try again." 6 40
+    done
+  fi
+
+  # ── NTP ──────────────────────────────────────────────────
+  if [[ $INSTALL_NTP -eq 1 ]]; then
+    _prompt_ntp_servers || INSTALL_NTP=0
+    [[ $INSTALL_NTP -eq 1 ]] && { _prompt_ntp_allow || INSTALL_NTP=0; }
+  fi
+
+  # ── KEA DHCP ─────────────────────────────────────────────
+  if [[ $INSTALL_DHCP -eq 1 ]]; then
+    DHCP_IFACE=$(nmcli -t -f DEVICE,STATE device status | awk -F: '$2=="connected"{print $1; exit}')
+    local inet4_line
+    inet4_line=$(nmcli -g IP4.ADDRESS device show "$DHCP_IFACE" | head -n1)
+    DHCP_INET4=${inet4_line%/*}; DHCP_CIDR=${inet4_line#*/}
+    DHCP_NETWORK=$(network_from_ip_cidr "$DHCP_INET4" "$DHCP_CIDR")
+    DHCP_NETMASK=$(cidr_to_netmask "$DHCP_CIDR")
+    local DEF_SUFFIX; DEF_SUFFIX="$(hostname -d 2>/dev/null || true)"
+
+    while true; do
+      while true; do
+        DHCP_POOL_START=$(dialog --backtitle "Kea DHCP" --stdout \
+          --inputbox "DHCP range START IP (in ${DHCP_NETWORK}/${DHCP_CIDR}):" 8 70)
+        is_valid_ip "$DHCP_POOL_START" && ip_in_cidr "$DHCP_POOL_START" "$DHCP_NETWORK" "$DHCP_CIDR" && break
+        dialog --msgbox "Invalid or out-of-range IP." 6 40
+      done
+      while true; do
+        DHCP_POOL_END=$(dialog --backtitle "Kea DHCP" --stdout \
+          --inputbox "DHCP range END IP (in ${DHCP_NETWORK}/${DHCP_CIDR}):" 8 70)
+        is_valid_ip "$DHCP_POOL_END" && ip_in_cidr "$DHCP_POOL_END" "$DHCP_NETWORK" "$DHCP_CIDR" && \
+          (( $(ip_to_int "$DHCP_POOL_START") <= $(ip_to_int "$DHCP_POOL_END") )) && break
+        dialog --msgbox "Invalid, out-of-range, or less than start IP." 6 50
+      done
+      while true; do
+        DHCP_ROUTER=$(dialog --backtitle "Kea DHCP" --stdout \
+          --inputbox "Default gateway for clients (in ${DHCP_NETWORK}/${DHCP_CIDR}):" 8 70)
+        is_valid_ip "$DHCP_ROUTER" && ip_in_cidr "$DHCP_ROUTER" "$DHCP_NETWORK" "$DHCP_CIDR" && break
+        dialog --msgbox "Invalid or out-of-range gateway." 6 40
+      done
+      while true; do
+        DHCP_DOM_SUFFIX=$(dialog --backtitle "Kea DHCP" --stdout \
+          --inputbox "Domain suffix for clients:" 8 70 "${DEF_SUFFIX}")
+        is_valid_domain "$DHCP_DOM_SUFFIX" && break
+        dialog --msgbox "Invalid domain suffix." 6 40
+      done
+      DHCP_DNS_SERVERS=$(dialog --backtitle "Kea DHCP" --stdout \
+        --inputbox "DNS servers (comma-separated, default: ${DHCP_INET4}):" 8 70 "$DHCP_INET4")
+      [[ -z "$DHCP_DNS_SERVERS" ]] && DHCP_DNS_SERVERS="$DHCP_INET4"
+      DHCP_SUBNET_DESC=$(dialog --backtitle "Kea DHCP" --stdout \
+        --inputbox "Friendly description for this scope:" 8 70)
+
+      dialog --backtitle "Kea DHCP" --title "Confirm Kea DHCP Settings" --yesno \
+"Interface:  ${DHCP_IFACE}
+Server IP:  ${DHCP_INET4}/${DHCP_CIDR}
+Subnet:     ${DHCP_NETWORK}/${DHCP_CIDR}
+Range:      ${DHCP_POOL_START}  →  ${DHCP_POOL_END}
+Gateway:    ${DHCP_ROUTER}
+DNS:        ${DHCP_DNS_SERVERS}
+Domain:     ${DHCP_DOM_SUFFIX}
+Desc:       ${DHCP_SUBNET_DESC}
+
+Apply these settings?" 18 65 && break
+    done
+  fi
+
+  clear
+}
+
+# =============================================================
 # STEP 8 — EPEL + CRB REPOS
 # =============================================================
 enable_repos() {
@@ -303,15 +437,31 @@ enable_repos() {
   local log="$LOGDIR/repo-setup.log"
   : > "$log"
 
-  step_info "Enabling EPEL and CRB repositories..."
-  {
-    dnf -y install epel-release --setopt=install_weak_deps=False --color=never >>"$log" 2>&1
-    dnf -y install dnf-plugins-core --setopt=install_weak_deps=False --color=never >>"$log" 2>&1 || true
-    dnf config-manager --set-enabled crb --color=never >>"$log" 2>&1 || true
-    dnf -y makecache --refresh --color=never >>"$log" 2>&1
-  }
+  local PIPE; PIPE=$(mktemp -u); mkfifo "$PIPE"
 
-  if [[ $? -eq 0 ]]; then
+  dialog --backtitle "Repository Setup" --title "Enabling Repositories" \
+    --gauge "Initializing..." 10 70 0 < "$PIPE" &
+
+  local RC=0
+  {
+    echo "10"; echo "XXX"; echo "Installing EPEL release..."; echo "XXX"
+    dnf -y install epel-release --setopt=install_weak_deps=False --color=never >>"$log" 2>&1 || RC=1
+
+    echo "40"; echo "XXX"; echo "Installing dnf-plugins-core..."; echo "XXX"
+    dnf -y install dnf-plugins-core --setopt=install_weak_deps=False --color=never >>"$log" 2>&1 || true
+
+    echo "65"; echo "XXX"; echo "Enabling CRB repository..."; echo "XXX"
+    dnf config-manager --set-enabled crb --color=never >>"$log" 2>&1 || true
+
+    echo "85"; echo "XXX"; echo "Refreshing package cache..."; echo "XXX"
+    dnf -y makecache --refresh --color=never >>"$log" 2>&1 || RC=1
+
+    echo "100"; echo "XXX"; echo "Repositories enabled."; echo "XXX"
+  } > "$PIPE"
+  wait; rm -f "$PIPE"
+
+  clear
+  if [[ $RC -eq 0 ]]; then
     step_ok "EPEL + CRB enabled"
   else
     step_fail "Repo setup had errors — see ${log}"
@@ -353,6 +503,7 @@ run_system_upgrade() {
   } > "$PIPE"
   wait; rm -f "$PIPE"
 
+  clear
   step_ok "System packages upgraded (${TOTAL} packages)"
   sleep 1
 }
@@ -396,6 +547,7 @@ update_and_install_packages() {
   } > "$PIPE"
   wait; rm -f "$PIPE"
 
+  clear
   step_ok "Required packages installed"
   sleep 1
 }
@@ -422,6 +574,80 @@ vm_detection() {
     step_ok "open-vm-tools installed"
   else
     step_ok "No hypervisor guest tools needed (physical or unsupported platform)"
+  fi
+  sleep 1
+}
+
+# =============================================================
+# BIND DNS — CACHING ONLY (optional)
+# =============================================================
+configure_bind_caching() {
+  [[ $INSTALL_BIND -eq 0 ]] && return 0
+  section "BIND DNS (caching-only)"
+  local log="$LOGDIR/bind.log"
+  : > "$log"
+
+  step_info "Installing BIND..."
+  dnf -y install bind bind-utils >>"$log" 2>&1
+  if [[ $? -ne 0 ]]; then
+    step_fail "BIND install failed — see ${log}"
+    return 1
+  fi
+  step_ok "BIND installed"
+
+  step_info "Writing caching-only named.conf..."
+  cp /etc/named.conf /etc/named.conf.bak 2>/dev/null || true
+
+  cat > /etc/named.conf << 'NAMEDEOF'
+options {
+    listen-on port 53 { any; };
+    listen-on-v6 { none; };
+    directory       "/var/named";
+    dump-file       "/var/named/data/cache_dump.db";
+    statistics-file "/var/named/data/named_stats.txt";
+    memstatistics-file "/var/named/data/named_mem_stats.txt";
+    recursion yes;
+    dnssec-validation no;
+    forward only;
+};
+NAMEDEOF
+
+  # Inject the allow-query/allow-recursion/forwarders with actual values
+  sed -i "s|recursion yes;|recursion yes;\n    allow-query     { localhost; ${BIND_ALLOW_NET}; };\n    allow-recursion { localhost; ${BIND_ALLOW_NET}; };\n    forwarders {\n        208.67.222.222;\n        208.67.220.220;\n    };|" /etc/named.conf
+
+  # Append standard zone includes
+  cat >> /etc/named.conf << 'NAMEDEOF'
+
+logging {
+    channel default_debug {
+        file "data/named.run";
+        severity dynamic;
+    };
+};
+
+zone "." IN {
+    type hint;
+    file "named.ca";
+};
+
+include "/etc/named.rfc1912.zones";
+include "/etc/named.root.key";
+NAMEDEOF
+
+  chown root:named /etc/named.conf
+  chmod 640 /etc/named.conf
+
+  firewall-cmd --permanent --add-service=dns >>"$log" 2>&1 || true
+  firewall-cmd --reload >>"$log" 2>&1 || true
+
+  systemctl enable --now named >>"$log" 2>&1
+  sleep 2
+
+  if systemctl is-active --quiet named; then
+    step_ok "BIND DNS caching server running"
+    step_ok "  Allows: ${BIND_ALLOW_NET} | Forwarders: 208.67.222.222 / 208.67.220.220"
+  else
+    step_fail "BIND failed to start — see ${log}"
   fi
   sleep 1
 }
@@ -494,13 +720,9 @@ _validate_time_sync() {
 }
 
 configure_ntp() {
+  [[ $INSTALL_NTP -eq 0 ]] && return 0
   section "NTP / Chrony"
-  dialog --backtitle "Configure NTP" --title "NTP Setup" \
-    --yesno "Configure Chrony NTP server on this system?" 7 55
-  [[ $? -ne 0 ]] && { step_info "NTP configuration skipped"; return 0; }
-
-  _prompt_ntp_servers || { step_info "NTP configuration cancelled"; return 0; }
-  _prompt_ntp_allow   || { step_info "NTP allow-network cancelled"; return 0; }
+  # NTP_ADDR and ALLOW_NET already gathered by gather_service_config — no prompts here
   _update_chrony_config
   _validate_time_sync
   sleep 1
@@ -510,11 +732,9 @@ configure_ntp() {
 # STEP 13 — KEA DHCP SERVER (optional)
 # =============================================================
 configure_dhcp_kea() {
+  [[ $INSTALL_DHCP -eq 0 ]] && return 0
   section "DHCP Server (Kea)"
-
-  dialog --backtitle "DHCP Server" --title "Kea DHCP" \
-    --yesno "Install and configure Kea DHCP on this server?" 7 55
-  [[ $? -ne 0 ]] && { step_info "DHCP installation skipped"; return 0; }
+  # All settings already gathered by gather_service_config — no prompts here
 
   local log="$LOGDIR/kea-install.log"
   : > "$log"
@@ -529,69 +749,13 @@ configure_dhcp_kea() {
   fi
   step_ok "Kea DHCP installed"
 
-  # --- Gather scope settings ---
-  local iface inet4_line INET4 CIDR NETWORK NETMASK
-  iface=$(nmcli -t -f DEVICE,STATE device status | awk -F: '$2=="connected"{print $1; exit}')
-  inet4_line=$(nmcli -g IP4.ADDRESS device show "$iface" | head -n1)
-  INET4=${inet4_line%/*}; CIDR=${inet4_line#*/}
-  NETWORK=$(network_from_ip_cidr "$INET4" "$CIDR")
-  NETMASK=$(cidr_to_netmask "$CIDR")
-
-  local POOL_START POOL_END ROUTER DOM_SUFFIX SEARCH_DOMAIN DNS_SERVERS SUBNET_DESC
-  local DEF_SUFFIX; DEF_SUFFIX="$(hostname -d 2>/dev/null || true)"
-
-  while true; do
-    while true; do
-      POOL_START=$(dialog --backtitle "Kea DHCP" --stdout \
-        --inputbox "DHCP range START IP (in ${NETWORK}/${CIDR}):" 8 70)
-      is_valid_ip "$POOL_START" && ip_in_cidr "$POOL_START" "$NETWORK" "$CIDR" && break
-      dialog --msgbox "Invalid or out-of-range IP." 6 40
-    done
-    while true; do
-      POOL_END=$(dialog --backtitle "Kea DHCP" --stdout \
-        --inputbox "DHCP range END IP (in ${NETWORK}/${CIDR}):" 8 70)
-      is_valid_ip "$POOL_END" && ip_in_cidr "$POOL_END" "$NETWORK" "$CIDR" && \
-        (( $(ip_to_int "$POOL_START") <= $(ip_to_int "$POOL_END") )) && break
-      dialog --msgbox "Invalid, out-of-range, or less than start IP." 6 50
-    done
-    while true; do
-      ROUTER=$(dialog --backtitle "Kea DHCP" --stdout \
-        --inputbox "Default gateway for clients (in ${NETWORK}/${CIDR}):" 8 70)
-      is_valid_ip "$ROUTER" && ip_in_cidr "$ROUTER" "$NETWORK" "$CIDR" && break
-      dialog --msgbox "Invalid or out-of-range gateway." 6 40
-    done
-    while true; do
-      DOM_SUFFIX=$(dialog --backtitle "Kea DHCP" --stdout \
-        --inputbox "Domain suffix for clients:" 8 70 "${DEF_SUFFIX}")
-      is_valid_domain "$DOM_SUFFIX" && break
-      dialog --msgbox "Invalid domain suffix." 6 40
-    done
-    DNS_SERVERS=$(dialog --backtitle "Kea DHCP" --stdout \
-      --inputbox "DNS servers (comma-separated, default: ${INET4}):" 8 70 "$INET4")
-    [[ -z "$DNS_SERVERS" ]] && DNS_SERVERS="$INET4"
-    SUBNET_DESC=$(dialog --backtitle "Kea DHCP" --stdout \
-      --inputbox "Friendly description for this scope:" 8 70)
-
-    dialog --backtitle "Kea DHCP" --title "Confirm Kea DHCP Settings" --yesno \
-"Interface:  ${iface}
-Server IP:  ${INET4}/${CIDR}
-Subnet:     ${NETWORK}/${CIDR}
-Range:      ${POOL_START}  →  ${POOL_END}
-Gateway:    ${ROUTER}
-DNS:        ${DNS_SERVERS}
-Domain:     ${DOM_SUFFIX}
-Desc:       ${SUBNET_DESC}
-
-Apply these settings?" 18 65 && break
-  done
-
   local KEA_CONF="/etc/kea/kea-dhcp4.conf"
   mkdir -p /etc/kea
   cat > "$KEA_CONF" <<EOF
 {
   "Dhcp4": {
     "interfaces-config": {
-      "interfaces": [ "${iface}" ]
+      "interfaces": [ "${DHCP_IFACE}" ]
     },
     "lease-database": {
       "type": "memfile",
@@ -601,15 +765,15 @@ Apply these settings?" 18 65 && break
     "subnet4": [
       {
         "id": 1,
-        "subnet": "${NETWORK}/${CIDR}",
-        "interface": "${iface}",
-        "comment": "${SUBNET_DESC}",
-        "pools": [ { "pool": "${POOL_START} - ${POOL_END}" } ],
+        "subnet": "${DHCP_NETWORK}/${DHCP_CIDR}",
+        "interface": "${DHCP_IFACE}",
+        "comment": "${DHCP_SUBNET_DESC}",
+        "pools": [ { "pool": "${DHCP_POOL_START} - ${DHCP_POOL_END}" } ],
         "option-data": [
-          { "name": "routers",             "data": "${ROUTER}" },
-          { "name": "domain-name-servers", "data": "${DNS_SERVERS}" },
-          { "name": "ntp-servers",         "data": "${INET4}" },
-          { "name": "domain-name",         "data": "${DOM_SUFFIX}" }
+          { "name": "routers",             "data": "${DHCP_ROUTER}" },
+          { "name": "domain-name-servers", "data": "${DHCP_DNS_SERVERS}" },
+          { "name": "ntp-servers",         "data": "${DHCP_INET4}" },
+          { "name": "domain-name",         "data": "${DHCP_DOM_SUFFIX}" }
         ]
       }
     ],
@@ -1318,11 +1482,14 @@ main() {
 
   check_internet_connectivity
   validate_and_set_hostname
-  show_server_checklist
+  service_menu_checklist    # operator picks optional services
+  gather_service_config     # all questions asked NOW — install is unattended after this
+  show_server_checklist     # informational summary before the unattended phase begins
   enable_repos
   run_system_upgrade
   update_and_install_packages
   vm_detection
+  configure_bind_caching
   configure_ntp
   configure_dhcp_kea
   configure_firewall
