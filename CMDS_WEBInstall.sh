@@ -1312,7 +1312,7 @@ configure_apache_cmds() {
     ProxyPass        /api/auth/check http://127.0.0.1:8000/api/auth/check
     ProxyPassReverse /api/auth/check http://127.0.0.1:8000/api/auth/check
 
-    ProxyPass        /api/ http://127.0.0.1:8000/ retry=0
+    ProxyPass        /api/ http://127.0.0.1:8000/
     ProxyPassReverse /api/ http://127.0.0.1:8000/
 
     # =====================================================
@@ -1446,7 +1446,49 @@ PROFILE_EOF
 }
 
 # =============================================================
-# STEP 29 — FINAL STATUS REPORT
+# STEP 29 — CMDS UPDATE CHECK TIMER
+# Installs the daily GitHub update check (systemd timer).
+# Writes state to /opt/cmds-go/state/update_available.json
+# which the UI reads to show the update banner.
+# =============================================================
+install_update_timer() {
+  section "CMDS Update Check Timer"
+  local INSTALL_DIR="/opt/cmds-go/installer"
+  local UPGRADE_DIR="/opt/cmds-go/upgrade"
+
+  # Copy scripts into upgrade/
+  mkdir -p "$UPGRADE_DIR"
+  cp "${INSTALL_DIR}/update_check.sh"  "${UPGRADE_DIR}/update_check.sh"
+  cp "${INSTALL_DIR}/cmds_upgrade.sh"  "${UPGRADE_DIR}/cmds_upgrade.sh"
+  chmod 700 "${UPGRADE_DIR}/update_check.sh"
+  chmod 700 "${UPGRADE_DIR}/cmds_upgrade.sh"
+  step_ok "Upgrade scripts installed to ${UPGRADE_DIR}/"
+
+  # Install systemd units
+  cp "${INSTALL_DIR}/cmds-update-check.service" /etc/systemd/system/
+  cp "${INSTALL_DIR}/cmds-update-check.timer"   /etc/systemd/system/
+  chmod 644 /etc/systemd/system/cmds-update-check.service
+  chmod 644 /etc/systemd/system/cmds-update-check.timer
+  step_ok "Systemd units installed"
+
+  # Enable and start timer
+  systemctl daemon-reload
+  systemctl enable --now cmds-update-check.timer
+
+  if systemctl is-active --quiet cmds-update-check.timer; then
+    step_ok "Update check timer active (runs daily)"
+  else
+    step_fail "Timer failed to start — check: systemctl status cmds-update-check.timer"
+  fi
+
+  # Run an initial check immediately so state file exists on first login
+  bash "${UPGRADE_DIR}/update_check.sh" || true
+  step_ok "Initial update check complete"
+  sleep 1
+}
+
+# =============================================================
+# STEP 30 — FINAL STATUS REPORT
 # =============================================================
 final_status_report() {
   clear
@@ -1559,6 +1601,7 @@ main() {
   install_cmds_service
   enable_cockpit
   configure_cmds_console
+  install_update_timer
   final_status_report
 
   # ── Cleanup installer artifacts ───────────────────────────
@@ -1587,6 +1630,7 @@ main() {
   echo -e "  ${CYAN}Web UI:${TEXTRESET}       http://${server_ip}/"
   echo -e "  ${CYAN}Cockpit:${TEXTRESET}      https://${server_ip}:9090/"
   echo ""
+  echo -e "  Scroll up to review install output."
   echo -e "  Log files are available after reboot at: ${LOGDIR}/"
   echo ""
   read -rp "  Press Enter to reboot... " _
