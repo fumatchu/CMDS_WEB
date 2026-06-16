@@ -1635,3 +1635,6 @@ main() {
   echo ""
   read -rp "  Press Enter to reboot... " _
   reboot
+}
+
+main
