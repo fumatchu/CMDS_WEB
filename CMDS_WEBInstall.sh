@@ -1253,7 +1253,6 @@ final_status_report() {
   echo ""
 
   local services=("cmds-go" "httpd" "tftp-server.socket" "fail2ban" "chronyd" "firewalld")
-  local optional=("kea-dhcp4" "cockpit.socket")
 
   echo -e "  ${CYAN}Core Services:${TEXTRESET}"
   for svc in "${services[@]}"; do
@@ -1266,17 +1265,42 @@ final_status_report() {
 
   echo ""
   echo -e "  ${CYAN}Optional Services:${TEXTRESET}"
-  for svc in "${optional[@]}"; do
-    if systemctl is-enabled "$svc" 2>/dev/null | grep -q enabled; then
-      if systemctl is-active --quiet "$svc" 2>/dev/null; then
-        step_ok "${svc}"
-      else
-        step_fail "${svc} (enabled but not running)"
-      fi
+
+  # DNS (BIND)
+  if [[ $INSTALL_BIND -eq 1 ]]; then
+    if systemctl is-active --quiet named 2>/dev/null; then
+      step_ok "named (DNS)"
     else
-      step_info "${svc} (not installed)"
+      step_ok "named (DNS) — installed, configure via CMDS UI"
     fi
-  done
+  fi
+
+  # NTP (Chrony — optional install, not the core chronyd)
+  if [[ $INSTALL_NTP -eq 1 ]]; then
+    if systemctl is-active --quiet chronyd 2>/dev/null; then
+      step_ok "chronyd (NTP server) — installed, configure via CMDS UI"
+    else
+      step_ok "chronyd (NTP server) — installed, configure via CMDS UI"
+    fi
+  fi
+
+  # DHCP (Kea)
+  if [[ $INSTALL_DHCP -eq 1 ]]; then
+    if systemctl is-active --quiet kea-dhcp4 2>/dev/null; then
+      step_ok "kea-dhcp4"
+    else
+      step_ok "kea-dhcp4 — installed, configure via CMDS UI"
+    fi
+  fi
+
+  # Cockpit (always shown)
+  if systemctl is-active --quiet cockpit.socket 2>/dev/null; then
+    step_ok "cockpit.socket"
+  elif systemctl is-enabled cockpit.socket 2>/dev/null | grep -q enabled; then
+    step_ok "cockpit.socket"
+  else
+    step_info "cockpit.socket (not installed)"
+  fi
 
   local server_ip
   server_ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '/src/{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || hostname -I | awk '{print $1}')
@@ -1386,8 +1410,7 @@ main() {
   echo -e "  ${CYAN}Web UI:${TEXTRESET}       http://${server_ip}/"
   echo -e "  ${CYAN}Cockpit:${TEXTRESET}      https://${server_ip}:9090/"
   echo ""
-  echo -e "  Scroll up to review install output."
-  echo -e "  Log files are available after reboot at: ${LOGDIR}/"
+  echo -e "  Log files are available at: ${LOGDIR}/"
   echo ""
   read -rp "  Press Enter to reboot... " _
   reboot
