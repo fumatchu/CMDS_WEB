@@ -1030,6 +1030,9 @@ configure_apache_cmds() {
   : > "$log"
 
   cat > "$CONF" <<'APACHECONF'
+# Keep long-running proxy connections alive for large IOS-XE uploads (1GB+)
+Timeout 600
+
 <VirtualHost *:80>
     DocumentRoot "/opt/cmds-go/ui"
     LimitRequestBody 2147483648
@@ -1038,6 +1041,11 @@ configure_apache_cmds() {
     # over slow/routed paths without Apache killing the connection mid-transfer.
     # (Default body=20,MinRate=500 drops connections on I226-V NIC + inter-VLAN paths)
     RequestReadTimeout body=0
+
+    # Prevent HTTP 408 mid-upload when chunk count exceeds MaxKeepAliveRequests
+    # default (100). 0 = unlimited requests per keepalive connection.
+    MaxKeepAliveRequests 0
+    KeepAliveTimeout 60
 
     <Directory "/opt/cmds-go/ui">
         Options Indexes FollowSymLinks
@@ -1062,6 +1070,7 @@ configure_apache_cmds() {
     # =====================================================
     ProxyRequests Off
     ProxyPreserveHost On
+    ProxyTimeout 600
 
     ProxyPass        /api/login http://127.0.0.1:8000/api/login
     ProxyPassReverse /api/login http://127.0.0.1:8000/api/login
@@ -1069,7 +1078,9 @@ configure_apache_cmds() {
     ProxyPass        /api/auth/check http://127.0.0.1:8000/api/auth/check
     ProxyPassReverse /api/auth/check http://127.0.0.1:8000/api/auth/check
 
-    ProxyPass        /api/ http://127.0.0.1:8000/ retry=0
+    # disablereuse=On prevents Apache reusing a connection that uvicorn
+    # may have half-closed between requests.
+    ProxyPass        /api/ http://127.0.0.1:8000/ retry=0 disablereuse=On
     ProxyPassReverse /api/ http://127.0.0.1:8000/
 
     # =====================================================
