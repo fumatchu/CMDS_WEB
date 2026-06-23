@@ -878,6 +878,7 @@ install_python_packages() {
     "uvicorn[standard]"
     "python-multipart"
     "python-pam"
+    "pexpect"
     "ptyprocess"
   )
 
