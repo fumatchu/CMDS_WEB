@@ -297,7 +297,7 @@ This installer will set up:
   • TFTP + HTTP image server for IOS-XE firmware
   • FastAPI backend (cmds-go service)
   • Apache reverse proxy for the web UI
-  • Cockpit web management console
+
 
 Have ready (if enabling optional services):
   1. NTP server IPs or FQDNs (up to 3)
@@ -440,7 +440,7 @@ update_and_install_packages() {
   local REQUIRED_PKGS=(
     ntsysv gcc tar nmap openssl-devel make at bc bzip2-devel
     libffi-devel zlib-devel nano rsync sshpass openldap-clients
-    fail2ban tuned cockpit cockpit-storaged cockpit-files
+    fail2ban tuned
     net-tools dmidecode ipcalc bind-utils iotop zip
     yum-utils curl wget dnf-automatic dnf-plugins-core
     util-linux htop expect iptraf-ng mc
@@ -576,7 +576,9 @@ configure_firewall() {
   firewall-cmd --permanent --add-service=ntp     >/dev/null 2>&1
   firewall-cmd --permanent --add-service=http    >/dev/null 2>&1
   firewall-cmd --permanent --add-service=https   >/dev/null 2>&1
-  firewall-cmd --permanent --add-service=cockpit >/dev/null 2>&1
+
+  # Port 8000: uvicorn direct access for WebSocket IOS-XE upload (bypasses Apache proxy)
+  firewall-cmd --permanent --add-port=8000/tcp   >/dev/null 2>&1
   firewall-cmd --reload >/dev/null 2>&1
   systemctl restart firewalld >/dev/null 2>&1
 
@@ -876,6 +878,7 @@ install_python_packages() {
     "uvicorn[standard]"
     "python-multipart"
     "python-pam"
+    "ptyprocess"
   )
 
   local all_ok=1
@@ -1078,6 +1081,11 @@ Timeout 600
     ProxyPass        /api/auth/check http://127.0.0.1:8000/api/auth/check
     ProxyPassReverse /api/auth/check http://127.0.0.1:8000/api/auth/check
 
+    # WebSocket proxy — must come before the generic /api/ rule.
+    # mod_proxy_wstunnel handles the HTTP→WS upgrade handshake.
+    ProxyPass        /api/ws/ ws://127.0.0.1:8000/ws/
+    ProxyPassReverse /api/ws/ ws://127.0.0.1:8000/ws/
+
     # disablereuse=On prevents Apache reusing a connection that uvicorn
     # may have half-closed between requests.
     ProxyPass        /api/ http://127.0.0.1:8000/ retry=0 disablereuse=On
@@ -1092,6 +1100,15 @@ Timeout 600
 APACHECONF
 
   step_ok "VirtualHost written: ${CONF}"
+
+  # Make sure mod_proxy_wstunnel is enabled (required for WebSocket upload)
+  if ! grep -q 'proxy_wstunnel_module' /etc/httpd/conf.modules.d/00-proxy.conf 2>/dev/null; then
+    echo "LoadModule proxy_wstunnel_module modules/mod_proxy_wstunnel.so" \
+      >> /etc/httpd/conf.modules.d/00-proxy.conf
+    step_ok "mod_proxy_wstunnel added to 00-proxy.conf"
+  else
+    step_ok "mod_proxy_wstunnel already present in 00-proxy.conf"
+  fi
 
   # Syntax test
   local syntax_out
@@ -1134,7 +1151,7 @@ Type=simple
 User=root
 Group=root
 WorkingDirectory=/opt/cmds-go/api
-ExecStart=/usr/local/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+ExecStart=/usr/local/bin/uvicorn main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
@@ -1158,23 +1175,7 @@ EOF
   sleep 1
 }
 
-# =============================================================
-# STEP 27 — COCKPIT
-# =============================================================
-enable_cockpit() {
-  section "Cockpit Web Console"
-  local log="$LOGDIR/cockpit.log"
-  : > "$log"
-
-  systemctl enable --now cockpit.socket >>"$log" 2>&1
-
-  if systemctl is-active --quiet cockpit.socket; then
-    step_ok "Cockpit active (https://<server-ip>:9090)"
-  else
-    step_fail "Cockpit failed to start — see ${log}"
-  fi
-  sleep 1
-}
+# (Cockpit removed — replaced by built-in Server Administration UI)
 
 # =============================================================
 # STEP 28 — CMDS CONSOLE AUTOSTART
@@ -1304,22 +1305,13 @@ final_status_report() {
     fi
   fi
 
-  # Cockpit (always shown)
-  if systemctl is-active --quiet cockpit.socket 2>/dev/null; then
-    step_ok "cockpit.socket"
-  elif systemctl is-enabled cockpit.socket 2>/dev/null | grep -q enabled; then
-    step_ok "cockpit.socket"
-  else
-    step_info "cockpit.socket (not installed)"
-  fi
-
   local server_ip
   server_ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '/src/{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}' || hostname -I | awk '{print $1}')
 
   echo ""
   echo -e "  ${CYAN}Access Points:${TEXTRESET}"
   echo -e "  ${YELLOW}→${TEXTRESET}  Web UI:      http://${server_ip}/"
-  echo -e "  ${YELLOW}→${TEXTRESET}  Cockpit:     https://${server_ip}:9090/"
+
   echo -e "  ${YELLOW}→${TEXTRESET}  Logs:        journalctl -u cmds-go -f"
   echo -e "  ${YELLOW}→${TEXTRESET}  Installer log: ${LOGDIR}/"
   echo ""
@@ -1390,7 +1382,7 @@ main() {
   configure_selinux_cmds
   configure_apache_cmds
   install_cmds_service
-  enable_cockpit
+
   configure_cmds_console
   install_update_timer
   final_status_report
@@ -1419,7 +1411,7 @@ main() {
   echo ""
   echo -e "  ${CYAN}Install log:${TEXTRESET}  ${LOGDIR}/"
   echo -e "  ${CYAN}Web UI:${TEXTRESET}       http://${server_ip}/"
-  echo -e "  ${CYAN}Cockpit:${TEXTRESET}      https://${server_ip}:9090/"
+
   echo ""
   echo -e "  Log files are available at: ${LOGDIR}/"
   echo ""
