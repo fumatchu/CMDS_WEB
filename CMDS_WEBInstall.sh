@@ -572,6 +572,9 @@ configure_dhcp_kea() {
 configure_firewall() {
   section "Firewall"
 
+  # Remove Rocky Linux defaults we don't want
+  firewall-cmd --permanent --remove-service=cockpit      >/dev/null 2>&1
+  firewall-cmd --permanent --remove-service=dhcpv6-client >/dev/null 2>&1
   firewall-cmd --permanent --add-service=tftp    >/dev/null 2>&1
   firewall-cmd --permanent --add-service=ntp     >/dev/null 2>&1
   firewall-cmd --permanent --add-service=http    >/dev/null 2>&1
