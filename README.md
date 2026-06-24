@@ -1,10 +1,10 @@
-# CMDS-GO
+# CMDS
 
-CMDS-GO is a browser-based migration platform designed to streamline Catalyst-to-Meraki switch migrations.
+CMDS is a browser-based migration platform designed to streamline Catalyst-to-Meraki switch migrations.
 
 The platform discovers switches, validates migration readiness, remediates common configuration issues, upgrades IOS-XE firmware when required, and prepares devices for onboarding into the Meraki Dashboard.
 
-CMDS-GO supports both modern Catalyst 9000 platforms and legacy Catalyst access switches, allowing organizations to standardize migration workflows across their switching environment.
+CMDS supports both modern Catalyst 9000 platforms and legacy Catalyst access switches, allowing organizations to standardize migration workflows across their switching environment.
 
 ![CMDS Dashboard](docs/screenshots/dashboard.png)
 
@@ -12,16 +12,16 @@ CMDS-GO supports both modern Catalyst 9000 platforms and legacy Catalyst access 
 
 ## Supported Platforms
 
-- Catalyst 2960 Series
+- Catalyst Legacy Series (with SSH) (296X, 365X, 375X, 3850X)
 - Catalyst 9200 Series
 - Catalyst 9300 Series
-- Catalyst 9500 Series
+- Catalyst 9500 Series (NON-SVL)
 
 ---
 
 ## Migration Workflow
 
-CMDS-GO guides administrators through a structured migration process:
+CMDS guides administrators through a structured migration process:
 
 1. Discover switches
 2. Validate migration readiness
@@ -54,7 +54,7 @@ Validation checks include:
 
 ## Automated Remediation
 
-CMDS-GO can automatically correct common migration blockers before onboarding begins.
+CMDS can automatically correct common migration blockers before onboarding begins.
 
 ![Automated Remediation](docs/screenshots/remediation.png)
 
@@ -72,7 +72,7 @@ Real-time remediation progress is displayed directly within the interface.
 
 ## IOS-XE Firmware Management
 
-CMDS-GO includes integrated firmware lifecycle management to ensure devices meet migration requirements.
+CMDS includes integrated firmware lifecycle management to ensure devices meet migration requirements.
 
 ![Firmware Transfer](docs/screenshots/firmware-transfer.png)
 
@@ -117,7 +117,7 @@ Track migration readiness, firmware upgrades, remediation actions, and onboardin
 
 ## Server Management
 
-CMDS-GO includes a built-in server administration panel for managing users, services, network settings, and platform health — no separate management tools required.
+CMDS includes a built-in server administration panel for managing users, services, network settings, and platform health — no separate management tools required.
 
 ![Server Administration](docs/screenshots/server-admin.png)
 
@@ -139,9 +139,9 @@ CMDS-GO includes a built-in server administration panel for managing users, serv
 
 ## Platform Requirements
 
-- Rocky Linux
+- Rocky Linux (Latest)
 - Cisco Meraki Dashboard API access
-- SSH access to Catalyst switches
+- SSH access to Catalyst switches (PRIV 15 with enable)
 - Internet connectivity from the management VLAN
 
 ---
@@ -156,4 +156,4 @@ sudo dnf -y install wget && cd "$HOME" && bash <(wget -qO- https://raw.githubuse
 
 ## Documentation
 
-Complete product documentation is included with every CMDS-GO deployment.
+Complete product documentation is included with every CMDS deployment.
