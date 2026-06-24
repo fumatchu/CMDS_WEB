@@ -91,7 +91,7 @@ Features include:
 
 ## Meraki Onboarding
 
-After validation and remediation are complete, CMDS-GO assists with onboarding switches into Meraki Dashboard.
+After validation and remediation are complete, CMDS assists with onboarding switches into Meraki Dashboard.
 
 ![Meraki Onboarding](docs/screenshots/onboarding.png)
 
