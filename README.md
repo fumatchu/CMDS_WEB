@@ -139,7 +139,9 @@ CMDS includes a built-in server administration panel for managing users, service
 
 ## Platform Requirements
 
-- Rocky Linux (Latest)
+- Rocky Linux 10.2 (Latest)
+- root account enabled and SSH enabled for root
+- static IP address for CMDS
 - Cisco Meraki Dashboard API access
 - SSH access to Catalyst switches (PRIV 15 with enable)
 - Internet connectivity from the management VLAN
