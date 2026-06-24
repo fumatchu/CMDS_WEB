@@ -1,3 +1,6 @@
+<p align="center">
+  <img src="docs/screenshots/hero.png" alt="CMDS Dashboard" width="100%">
+</p>
 # CMDS
 
 CMDS is a browser-based migration platform designed to streamline Catalyst-to-Meraki switch migrations.
