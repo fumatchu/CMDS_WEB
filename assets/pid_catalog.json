@@ -1,0 +1,1161 @@
+{
+  "schema_version": 1,
+  "catalog_version": "2026.10.01",
+  "released": "2026-10-01",
+  "min_app_version": "2026.1",
+  "meta": {
+    "title": "CMDS PID Catalog",
+    "purpose": "Single source of truth for CMDS: maps a discovered switch PID to its family, IOS XE image train, and Meraki eligibility + minimum IOS XE for Configuration Source: Cloud and Configuration Source: Device.",
+    "matching": "models[] entries are PID PREFIXES (case-insensitive). An exact PID match wins; otherwise the LONGEST matching prefix wins, so entry order never matters (e.g. C9300L-24P-4G beats C9300L-; C9350-48HXN beats C9350-48HX).",
+    "statuses": {
+      "supported": "Eligible; running IOS XE must be >= min_iosxe.",
+      "not_eligible": "Meraki does not support this platform for this configuration source.",
+      "future_release": "Meraki lists support as a future release; not onboardable yet.",
+      "not_listed": "(implicit) group has no meraki block / PID not in catalog."
+    },
+    "sources": [
+      {
+        "title": "Cloud Management with IOS XE - supported models",
+        "url": "https://documentation.meraki.com/Switching/Cloud_Management_with_IOS_XE",
+        "reviewed": "2026-10-01",
+        "page_updated": "2026-09-10"
+      },
+      {
+        "title": "Enable Cloud Management for Cisco Switches with Device Configuration",
+        "url": "https://documentation.meraki.com/Switching/Cloud_Management_with_IOS_XE/Install_and_Get_Started/Enable_Cloud_Management_for_Cisco_Switches_with_Device_Configuration",
+        "reviewed": "2026-10-01",
+        "page_updated": "2026-09-28"
+      },
+      {
+        "title": "Cloud Configuration: Release Versions and Highlights",
+        "url": "https://documentation.meraki.com/Switching/Cloud_Management_with_IOS_XE/Product_Information/Overviews_and_Datasheets/Cloud_Management_with_IOS_XE_Overview/Cloud_Configuration%3A_Release_Versions_and_Highlights",
+        "reviewed": "2026-10-01",
+        "page_updated": "2026-09-16"
+      }
+    ],
+    "notes": [
+      "Device Configuration minimum for C9200/C9200L/C9200CX and C9300/C9300L/C9300LM/C9300X is 17.15.3: the Device Configuration onboarding page says 17.15.3 while the main matrix says 17.15.1; CMDS uses the stricter 17.15.3 (Matt, 2026-10-01).",
+      "C9350-24S/48S: main matrix says 26.1.2+ (Cloud and Device); the Device onboarding page mentions some C9350 models at 26.2.1. CMDS uses the matrix value - re-check when those models ship.",
+      "Requirements for both sources: IOS XE in INSTALL mode (bundle mode unsupported) and a full-encryption image (NPE not supported).",
+      "C9500 Device Configuration: onboarding does not modify device tracking; it can be changed via CLI afterwards (Meraki footnote).",
+      "C9400/C9606 eligibility depends on the supervisor (Meraki lists C9400X-SUP-2/2XL and C9600-SUP-1/C9600X-SUP-2); the chassis PID alone cannot confirm the supervisor.",
+      "Image trains carried over from CatOps (.27) platform_families.json; legacy (non-9k) families are image-train only and are never Meraki-eligible."
+    ]
+  },
+  "image_trains": {
+    "cat9k_iosxe": {
+      "image_type": "UNIVERSAL",
+      "filename_patterns": [
+        "^cat9k_iosxe"
+      ]
+    },
+    "cat9k_lite_iosxe": {
+      "image_type": "LITE",
+      "filename_patterns": [
+        "^cat9k_lite_iosxe"
+      ]
+    },
+    "cisco9k_iosxe": {
+      "image_type": "SMART",
+      "filename_patterns": [
+        "^cisco9k_iosxe"
+      ]
+    },
+    "cat3k_caa": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^cat3k_caa-universalk9"
+      ]
+    },
+    "cat4500e_iosxe": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^cat4500e-universal"
+      ]
+    },
+    "cat4500e_classic": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^cat4500e-(entservices|ipbase)"
+      ]
+    },
+    "cat4500_classic": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^cat4500-(entservices|ipbase)"
+      ]
+    },
+    "c2960x": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^c2960x-"
+      ]
+    },
+    "c2960s": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^c2960s-"
+      ]
+    },
+    "c2960l": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^c2960l-universalk9"
+      ]
+    },
+    "c2960_plus": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^c2960-lan(base|lite)k9"
+      ]
+    },
+    "c2960c": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^c2960c405-universalk9"
+      ]
+    },
+    "c2960cx": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^c2960cx-universalk9"
+      ]
+    },
+    "c3560cx": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^c3560cx-"
+      ]
+    },
+    "c3560e": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^c3560e-"
+      ]
+    },
+    "c3750e": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^c3750e-"
+      ]
+    },
+    "ie3300": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^ie3300-"
+      ]
+    },
+    "ie3400": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^ie3400-"
+      ]
+    },
+    "c1000_universalk9": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^c1000-universalk9"
+      ]
+    },
+    "c1200_firmware": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^image_c1200_"
+      ]
+    },
+    "c1300_firmware": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^image_c1300_"
+      ]
+    },
+    "c1300x_firmware": {
+      "image_type": "LEGACY",
+      "filename_patterns": [
+        "^image_c1300x_"
+      ]
+    }
+  },
+  "families": [
+    {
+      "family": "C9200 / C9200L / C9200CX",
+      "image_train": "cat9k_lite_iosxe",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": true,
+      "identify_unsupported_models": [],
+      "role": "catalyst9k",
+      "groups": [
+        {
+          "name": "C9200L",
+          "models": [
+            "C9200L-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "supported",
+              "min_iosxe": "17.15.1"
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "17.15.3"
+            }
+          },
+          "notes": "Meraki lists -4X, -4G and -2Y uplink variants (and -M SKUs); all share these minimums."
+        },
+        {
+          "name": "C9200",
+          "models": [
+            "C9200-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "supported",
+              "min_iosxe": "17.18.1"
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "17.15.3"
+            }
+          }
+        },
+        {
+          "name": "C9200CX",
+          "models": [
+            "C9200CX-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "supported",
+              "min_iosxe": "17.18.1"
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "17.15.3"
+            }
+          }
+        },
+        {
+          "name": "C9200CX-8PT-2G",
+          "models": [
+            "C9200CX-8PT-2G"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "supported",
+              "min_iosxe": "26.1.1"
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "26.1.1"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "family": "C9300 / C9300L / C9300LM / C9300X",
+      "image_train": "cat9k_iosxe",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": true,
+      "identify_unsupported_models": [],
+      "role": "catalyst9k",
+      "groups": [
+        {
+          "name": "C9300 (primary models)",
+          "models": [
+            "C9300-24T",
+            "C9300-24P",
+            "C9300-24U",
+            "C9300-24UX",
+            "C9300-48T",
+            "C9300-48P",
+            "C9300-48U",
+            "C9300-48UXM",
+            "C9300-48UN",
+            "C9300-24S",
+            "C9300-48S",
+            "C9300X-",
+            "C9300L-24P-4X",
+            "C9300L-24T-4X",
+            "C9300L-24UXG-4X",
+            "C9300L-48P-4X",
+            "C9300L-48PF-4X",
+            "C9300L-48T-4X",
+            "C9300L-48UXG-4X"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "supported",
+              "min_iosxe": "17.15.1"
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "17.15.3"
+            }
+          },
+          "notes": "C9300X covers 12Y/24Y/48HXN/24HX/48HX/48TX. C9300L here = the -4X uplink variants."
+        },
+        {
+          "name": "C9300 (remaining models)",
+          "models": [
+            "C9300-24UB",
+            "C9300-24UXB",
+            "C9300-48UB",
+            "C9300-24H",
+            "C9300-48H",
+            "C9300L-24T-4G",
+            "C9300L-48T-4G",
+            "C9300L-24P-4G",
+            "C9300L-48P-4G",
+            "C9300L-48PF-4G",
+            "C9300L-24UXG-2Q",
+            "C9300L-48UXG-2Q"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "supported",
+              "min_iosxe": "17.18.1"
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "17.15.3"
+            }
+          },
+          "notes": "Uplink suffix matters for Cloud: C9300L -4G/-2Q need 17.18.1, -4X need 17.15.1."
+        },
+        {
+          "name": "C9300LM",
+          "models": [
+            "C9300LM-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "supported",
+              "min_iosxe": "17.18.1"
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "17.15.3"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "family": "C9350 (Smart Switch)",
+      "image_train": "cisco9k_iosxe",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": true,
+      "identify_unsupported_models": [],
+      "role": "catalyst9k",
+      "groups": [
+        {
+          "name": "C9350",
+          "models": [
+            "C9350-24T",
+            "C9350-48T",
+            "C9350-48TX",
+            "C9350-48HX",
+            "C9350-24P",
+            "C9350-48P",
+            "C9350-24U",
+            "C9350-48U"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "supported",
+              "min_iosxe": "17.18.1"
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "17.18.2"
+            }
+          }
+        },
+        {
+          "name": "C9350 (24HX / 48HXN)",
+          "models": [
+            "C9350-24HX",
+            "C9350-48HXN"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "supported",
+              "min_iosxe": "26.1.1"
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "26.1.1"
+            }
+          }
+        },
+        {
+          "name": "C9350 (24S / 48S)",
+          "models": [
+            "C9350-24S",
+            "C9350-48S"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "supported",
+              "min_iosxe": "26.1.2"
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "26.1.2"
+            }
+          },
+          "notes": "Device onboarding page mentions some C9350 at 26.2.1; matrix says 26.1.2 - re-check."
+        }
+      ]
+    },
+    {
+      "family": "C9400",
+      "image_train": "cat9k_iosxe",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": true,
+      "identify_unsupported_models": [],
+      "role": "catalyst9k",
+      "groups": [
+        {
+          "name": "C9400 (Meraki-listed chassis)",
+          "models": [
+            "C9404R",
+            "C9407R",
+            "C9410R"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "future_release",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "26.1.2"
+            }
+          },
+          "notes": "Requires C9400X-SUP-2 or C9400X-SUP-2XL supervisor."
+        },
+        {
+          "name": "C9400 (other chassis)",
+          "models": [
+            "C9412R",
+            "C9416R"
+          ],
+          "notes": "Not listed by Meraki."
+        }
+      ]
+    },
+    {
+      "family": "C9500 / C9500H",
+      "image_train": "cat9k_iosxe",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": true,
+      "identify_unsupported_models": [],
+      "role": "catalyst9k",
+      "groups": [
+        {
+          "name": "C9500",
+          "models": [
+            "C9500-12Q",
+            "C9500-16X",
+            "C9500-24Q",
+            "C9500-40X"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "17.15.3"
+            }
+          },
+          "notes": "Device Configuration does not modify device tracking during onboarding."
+        },
+        {
+          "name": "C9500 High Performance",
+          "models": [
+            "C9500-48Y4C",
+            "C9500-24Y4C",
+            "C9500-32C",
+            "C9500-32QC"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "supported",
+              "min_iosxe": "17.18.1"
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "17.15.3"
+            }
+          },
+          "notes": "Device Configuration does not modify device tracking during onboarding."
+        }
+      ]
+    },
+    {
+      "family": "C9500X",
+      "image_train": "cat9k_iosxe",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "catalyst9k",
+      "groups": [
+        {
+          "name": "C9500X (Meraki-listed)",
+          "models": [
+            "C9500X-28C8D",
+            "C9500X-60L4D"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "future_release",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "26.1.2"
+            }
+          }
+        },
+        {
+          "name": "C9500X (other)",
+          "models": [
+            "C9500X-"
+          ],
+          "notes": "Not listed by Meraki (e.g. C9500X-24Y4D)."
+        }
+      ]
+    },
+    {
+      "family": "C9600",
+      "image_train": "cat9k_iosxe",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "catalyst9k",
+      "groups": [
+        {
+          "name": "C9606",
+          "models": [
+            "C9606R"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "future_release",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "26.1.2"
+            }
+          },
+          "notes": "Requires C9600-SUP-1 or C9600X-SUP-2 supervisor."
+        },
+        {
+          "name": "C9610",
+          "models": [
+            "C9610"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "future_release",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "17.18.2"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "family": "C9550 (Smart Switch)",
+      "image_train": null,
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "catalyst9k",
+      "groups": [
+        {
+          "name": "C9550",
+          "models": [
+            "C9550-48L4CD",
+            "C9550-24L4CD",
+            "C9550-96L4D",
+            "C9550-32C",
+            "C9550-64C-XL"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "supported",
+              "min_iosxe": "26.2.1"
+            },
+            "device": {
+              "status": "supported",
+              "min_iosxe": "26.2.1"
+            }
+          },
+          "notes": "Image train not yet confirmed - pick image manually."
+        }
+      ]
+    },
+    {
+      "family": "IE-3500",
+      "image_train": null,
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "catalyst9k",
+      "groups": [
+        {
+          "name": "IE-3500 / IE-3505",
+          "models": [
+            "IE-3500-8T3S",
+            "IE-3500-8P3S",
+            "IE-3505-8T3S",
+            "IE-3505-8P3S",
+            "IE-3500-8T3X",
+            "IE-3500-8U3X"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "supported",
+              "min_iosxe": "26.1.1"
+            },
+            "device": {
+              "status": "future_release",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Image train not yet confirmed - pick image manually."
+        }
+      ]
+    },
+    {
+      "family": "MS390",
+      "image_train": null,
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "catalyst9k",
+      "groups": [
+        {
+          "name": "MS390",
+          "models": [
+            "MS390-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "supported",
+              "min_iosxe": "17.15.1"
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          }
+        }
+      ]
+    },
+    {
+      "family": "C4500X",
+      "image_train": "cat4500e_iosxe",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "C4500X",
+          "models": [
+            "WS-C4500X-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "C4500 Classic Chassis (Sup 6-E / 7-E)",
+      "image_train": "cat4500e_classic",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "C4500 Classic Chassis (Sup 6-E / 7-E)",
+          "models": [
+            "WS-C4503-E",
+            "WS-C4506-E",
+            "WS-C4507R-E",
+            "WS-C4507R+E",
+            "WS-C4510R-E",
+            "WS-C4510R+E"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "C3650 / C3850",
+      "image_train": "cat3k_caa",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": true,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "C3650 / C3850",
+          "models": [
+            "WS-C3650-",
+            "WS-C3850-",
+            "C3850-12X48U-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "C2960X / C2960XR",
+      "image_train": "c2960x",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "C2960X / C2960XR",
+          "models": [
+            "WS-C2960X-",
+            "WS-C2960XR-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "C2960S",
+      "image_train": "c2960s",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "C2960S",
+          "models": [
+            "WS-C2960S-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "C2960L",
+      "image_train": "c2960l",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "C2960L",
+          "models": [
+            "WS-C2960L-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "C2960-Plus",
+      "image_train": "c2960_plus",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "C2960-Plus",
+          "models": [
+            "WS-C2960+"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "C2960-C (Compact Switch)",
+      "image_train": "c2960c",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "C2960-C (Compact Switch)",
+          "models": [
+            "WS-C2960C-",
+            "WS-C2960CPD-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "C2960-CX (Compact Switch)",
+      "image_train": "c2960cx",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "C2960-CX (Compact Switch)",
+          "models": [
+            "WS-C2960CX-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "C3560CX",
+      "image_train": "c3560cx",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "C3560CX",
+          "models": [
+            "WS-C3560CX-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "C3560X",
+      "image_train": "c3560e",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "C3560X",
+          "models": [
+            "WS-C3560X-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "C3750X",
+      "image_train": "c3750e",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "C3750X",
+          "models": [
+            "WS-C3750X-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "IE3300",
+      "image_train": "ie3300",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "IE3300",
+          "models": [
+            "IE-3300-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "IE3400",
+      "image_train": "ie3400",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "IE3400",
+          "models": [
+            "IE-3400-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "Catalyst 1000",
+      "image_train": "c1000_universalk9",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "Catalyst 1000",
+          "models": [
+            "C1000-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "Catalyst 1200 (Business Smart Switch)",
+      "image_train": "c1200_firmware",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "Catalyst 1200 (Business Smart Switch)",
+          "models": [
+            "C1200-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "Catalyst 1300X (Business Managed Switch)",
+      "image_train": "c1300x_firmware",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "Catalyst 1300X (Business Managed Switch)",
+          "models": [
+            "C1300X-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    },
+    {
+      "family": "Catalyst 1300 (Business Managed Switch)",
+      "image_train": "c1300_firmware",
+      "device_class": "ACCESS_SWITCH",
+      "identify_supported": false,
+      "identify_unsupported_models": [],
+      "role": "legacy",
+      "groups": [
+        {
+          "name": "Catalyst 1300 (Business Managed Switch)",
+          "models": [
+            "C1300-"
+          ],
+          "meraki": {
+            "cloud": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            },
+            "device": {
+              "status": "not_eligible",
+              "min_iosxe": null
+            }
+          },
+          "notes": "Not supported for Meraki cloud management. Use the Legacy Catalyst Migration workflow to move this switch's configuration to new hardware."
+        }
+      ]
+    }
+  ]
+}
