@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "catalog_version": "2026.10.01",
-  "released": "2026-10-01",
+  "catalog_version": "2026.10.02",
+  "released": "2026-10-02",
   "min_app_version": "2026.1",
   "meta": {
     "title": "CMDS PID Catalog",
@@ -434,7 +434,17 @@
               "min_iosxe": "26.1.2"
             }
           },
-          "notes": "Requires C9400X-SUP-2 or C9400X-SUP-2XL supervisor."
+          "notes": "Requires C9400X-SUP-2 or C9400X-SUP-2XL supervisor.",
+          "requires_modules": [
+            {
+              "type": "supervisor",
+              "inventory_name": "Supervisor",
+              "any_of": [
+                "C9400X-SUP-2",
+                "C9400X-SUP-2XL"
+              ]
+            }
+          ]
         },
         {
           "name": "C9400 (other chassis)",
@@ -553,7 +563,17 @@
               "min_iosxe": "26.1.2"
             }
           },
-          "notes": "Requires C9600-SUP-1 or C9600X-SUP-2 supervisor."
+          "notes": "Requires C9600-SUP-1 or C9600X-SUP-2 supervisor.",
+          "requires_modules": [
+            {
+              "type": "supervisor",
+              "inventory_name": "Supervisor",
+              "any_of": [
+                "C9600-SUP-1",
+                "C9600X-SUP-2"
+              ]
+            }
+          ]
         },
         {
           "name": "C9610",
