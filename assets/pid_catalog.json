@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "catalog_version": "2026.10.02",
-  "released": "2026-10-02",
+  "catalog_version": "2026.10.03",
+  "released": "2026-10-03",
   "min_app_version": "2026.1",
   "meta": {
     "title": "CMDS PID Catalog",
