@@ -438,13 +438,13 @@ update_and_install_packages() {
   : > "$log"
 
   local REQUIRED_PKGS=(
-    ntsysv gcc tar nmap openssl-devel make at bc bzip2-devel
+    ntsysv gcc tar nmap openssl openssl-devel make at bc bzip2-devel
     libffi-devel zlib-devel nano rsync sshpass openldap-clients
     fail2ban tuned
     net-tools dmidecode ipcalc bind-utils iotop zip
     yum-utils curl wget dnf-automatic dnf-plugins-core
     util-linux htop expect iptraf-ng mc
-    httpd
+    httpd mod_ssl stunnel
     python3 python3-pip pam-devel
     tftp-server acl
     policycoreutils-python-utils
@@ -572,9 +572,6 @@ configure_dhcp_kea() {
 configure_firewall() {
   section "Firewall"
 
-  # Remove Rocky Linux defaults we don't want
-  firewall-cmd --permanent --remove-service=cockpit      >/dev/null 2>&1
-  firewall-cmd --permanent --remove-service=dhcpv6-client >/dev/null 2>&1
   firewall-cmd --permanent --add-service=tftp    >/dev/null 2>&1
   firewall-cmd --permanent --add-service=ntp     >/dev/null 2>&1
   firewall-cmd --permanent --add-service=http    >/dev/null 2>&1
@@ -582,6 +579,9 @@ configure_firewall() {
 
   # Port 8000: uvicorn direct access for WebSocket IOS-XE upload (bypasses Apache proxy)
   firewall-cmd --permanent --add-port=8000/tcp   >/dev/null 2>&1
+  # Port 8443: stunnel TLS wrapper for the same upload WebSocket (wss://)
+  # so it works from the HTTPS UI. Plain TCP relay -> 127.0.0.1:8000.
+  firewall-cmd --permanent --add-port=8443/tcp   >/dev/null 2>&1
   firewall-cmd --reload >/dev/null 2>&1
   systemctl restart firewalld >/dev/null 2>&1
 
@@ -717,30 +717,15 @@ http_repo_setup_module() {
   mkdir -p "${TFTP_ROOT}/images" "${TFTP_ROOT}/hybrid" "${TFTP_ROOT}/wlc" "${TFTP_ROOT}/mig" >>"$log" 2>&1
 
   cat > "$SITE_CONF" <<CONF
-# Serve firmware images over HTTP
+# Serve firmware images over HTTP.
+# /images MUST stay plain HTTP: switches pull IOS-XE images from
+# http://<server>/images during upgrades. cmds-go.conf exempts it from
+# the HTTP->HTTPS redirect.
+# /hybrid, /wlc and /mig are intentionally NOT published: they hold
+# config backups (with credentials). Config Viewer reads them through
+# the authenticated API (/api/migration/configs/*), not these aliases.
 Alias /images ${TFTP_ROOT}/images
 <Directory "${TFTP_ROOT}/images">
-    Options Indexes FollowSymLinks
-    AllowOverride None
-    Require all granted
-</Directory>
-
-Alias /hybrid ${TFTP_ROOT}/hybrid
-<Directory "${TFTP_ROOT}/hybrid">
-    Options Indexes FollowSymLinks
-    AllowOverride None
-    Require all granted
-</Directory>
-
-Alias /wlc ${TFTP_ROOT}/wlc
-<Directory "${TFTP_ROOT}/wlc">
-    Options Indexes FollowSymLinks
-    AllowOverride None
-    Require all granted
-</Directory>
-
-Alias /mig ${TFTP_ROOT}/mig
-<Directory "${TFTP_ROOT}/mig">
     Options Indexes FollowSymLinks
     AllowOverride None
     Require all granted
@@ -881,7 +866,6 @@ install_python_packages() {
     "uvicorn[standard]"
     "python-multipart"
     "python-pam"
-    "pexpect"
     "ptyprocess"
   )
 
@@ -1028,10 +1012,101 @@ configure_selinux_cmds() {
 }
 
 # =============================================================
-# STEP 25 — APACHE VIRTUALHOST
+# STEP 24b — SELF-SIGNED TLS CERTIFICATE
+# (adapted from RADS-WEB generate_ssl_cert — runs before configure_apache_cmds)
+# =============================================================
+generate_ssl_cert() {
+  section "TLS Certificate (self-signed)"
+  local log="$LOGDIR/ssl.log"
+  : > "$log"
+
+  local CERT="/etc/pki/tls/certs/cmds-go.crt"
+  local KEY="/etc/pki/tls/private/cmds-go.key"
+  local FQDN;  FQDN=$(hostname -f 2>/dev/null || hostname)
+  local SHORT; SHORT=$(hostname -s 2>/dev/null || hostname)
+  local SERVER_IP
+  SERVER_IP=$(ip -4 route get 1.1.1.1 2>/dev/null \
+    | awk '/src/{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
+  [[ -z "$SERVER_IP" ]] && SERVER_IP=$(hostname -I | awk '{print $1}')
+
+  # Disable the default mod_ssl VirtualHost FIRST. cmds-go.conf declares
+  # its own "Listen 443", so ssl.conf's Listen would be a duplicate listener.
+  #
+  # Edit ssl.conf IN PLACE (comment out) rather than renaming it:
+  # ssl.conf ships from the mod_ssl RPM as %config(noreplace). If it is
+  # renamed away, the next mod_ssl update reinstalls a pristine copy and
+  # silently reintroduces the duplicate listener. Editing in place keeps
+  # DNF's noreplace protection (updates drop ssl.conf.rpmnew instead).
+  local DEFAULT_SSL="/etc/httpd/conf.d/ssl.conf"
+  local OLD_DISABLED="${DEFAULT_SSL}.disabled"
+
+  if [[ ! -f "$DEFAULT_SSL" && -f "$OLD_DISABLED" ]]; then
+    mv "$OLD_DISABLED" "$DEFAULT_SSL"
+    step_info "Restored ssl.conf from a previous .disabled rename"
+  fi
+
+  if [[ -f "$DEFAULT_SSL" ]]; then
+    if grep -qE '^[[:space:]]*Listen[[:space:]]+443' "$DEFAULT_SSL"; then
+      sed -i -E 's/^([[:space:]]*)(Listen[[:space:]]+443.*)/\1# \2  # disabled by CMDS-GO installer -- cmds-go.conf declares its own Listen 443/' "$DEFAULT_SSL"
+      step_ok "Default ssl.conf Listen 443 commented out in place (DNF-safe)"
+    else
+      step_ok "Default ssl.conf Listen 443 already disabled"
+    fi
+
+    # Commenting out Listen alone is not enough: <VirtualHost _default_:443>
+    # still matches cmds-go.conf's Listen 443, and it points at
+    # /etc/pki/tls/certs/localhost.crt, which mod_ssl never creates on
+    # Rocky 8+ -> configtest fails with AH00526. Comment the block out too.
+    if grep -qE '^[[:space:]]*<VirtualHost[[:space:]]+_default_:443>' "$DEFAULT_SSL"; then
+      sed -i '/^[[:space:]]*<VirtualHost[[:space:]]\+_default_:443>/,/^[[:space:]]*<\/VirtualHost>/ s/^/# /' "$DEFAULT_SSL"
+      step_ok "Default ssl.conf <VirtualHost _default_:443> block commented out (DNF-safe)"
+    else
+      step_ok "Default ssl.conf VirtualHost block already disabled"
+    fi
+  fi
+
+  if [[ -f "$CERT" && -f "$KEY" ]]; then
+    step_ok "Certificate already exists — skipping generation"
+  else
+    step_info "Generating 4096-bit RSA self-signed cert for ${FQDN} / ${SERVER_IP}..."
+    if openssl req -x509 \
+        -newkey rsa:4096 \
+        -keyout "$KEY" \
+        -out    "$CERT" \
+        -days   3650 \
+        -nodes \
+        -subj "/C=US/ST=Local/L=Local/O=CMDS-GO/OU=Switch-Migration/CN=${FQDN}" \
+        -addext "subjectAltName=DNS:${FQDN},DNS:${SHORT},IP:${SERVER_IP}" \
+        >>"$log" 2>&1; then
+      chmod 600 "$KEY"
+      chmod 644 "$CERT"
+      step_ok "Self-signed cert generated (10-year / RSA-4096)"
+      step_ok "  CN : ${FQDN}"
+      step_ok "  SAN: DNS:${FQDN}, DNS:${SHORT}, IP:${SERVER_IP}"
+    else
+      step_fail "openssl cert generation failed — see ${log}"
+      return 1
+    fi
+  fi
+
+  if command -v restorecon >/dev/null 2>&1; then
+    restorecon -v "$CERT" "$KEY" >>"$log" 2>&1 || true
+    step_ok "SELinux context restored on cert/key"
+  fi
+
+  sleep 1
+}
+
+# =============================================================
+# STEP 25 — APACHE VIRTUALHOST (HTTPS)
+# 443: UI, docs and API proxy (TLS terminates at Apache; the proxy to
+#      uvicorn on 127.0.0.1:8000 stays plain HTTP).
+# 80:  redirects to HTTPS, EXCEPT /images which must stay plain HTTP
+#      for switches pulling IOS-XE images.
+# The direct IOS-XE upload WebSocket (ws://<host>:8000) is unchanged.
 # =============================================================
 configure_apache_cmds() {
-  section "Apache VirtualHost"
+  section "Apache VirtualHost (HTTPS)"
   local log="$LOGDIR/apache.log"
   local CONF="/etc/httpd/conf.d/cmds-go.conf"
   : > "$log"
@@ -1040,9 +1115,45 @@ configure_apache_cmds() {
 # Keep long-running proxy connections alive for large IOS-XE uploads (1GB+)
 Timeout 600
 
+# Listen 443 normally comes from ssl.conf — declared here because
+# generate_ssl_cert disables that file's Listen/VirtualHost.
+Listen 443 https
+
+# =====================================================
+# PORT 80 — redirect to HTTPS, except /images
+# =====================================================
 <VirtualHost *:80>
+    # /images (Alias in tftp-images.conf) MUST stay plain HTTP:
+    # switches download IOS-XE images from http://<server>/images.
+    RewriteEngine On
+    RewriteCond %{REQUEST_URI} !^/images(/|$)
+    RewriteRule ^/?(.*) https://%{HTTP_HOST}/$1 [R=301,L]
+
+    ErrorLog /var/log/httpd/cmds-go-error.log
+    CustomLog /var/log/httpd/cmds-go-access.log combined
+</VirtualHost>
+
+# =====================================================
+# PORT 443 — CMDS UI / DOCS / API
+# =====================================================
+<VirtualHost *:443>
     DocumentRoot "/opt/cmds-go/ui"
     LimitRequestBody 2147483648
+
+    # SSL
+    SSLEngine             On
+    SSLCertificateFile    /etc/pki/tls/certs/cmds-go.crt
+    SSLCertificateKeyFile /etc/pki/tls/private/cmds-go.key
+    SSLProtocol           all -SSLv3 -TLSv1 -TLSv1.1
+    SSLCipherSuite        ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:HIGH:!aNULL:!MD5:!3DES
+    SSLHonorCipherOrder   On
+    SSLSessionTickets     Off
+
+    # Security headers (HSTS intentionally omitted for now: it would force
+    # browsers onto HTTPS for this host, including ws://<host>:8000)
+    Header always set X-Frame-Options        "SAMEORIGIN"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy        "strict-origin-when-cross-origin"
 
     # Disable mod_reqtimeout body limit — allows large IOS-XE uploads (1GB+)
     # over slow/routed paths without Apache killing the connection mid-transfer.
@@ -1073,11 +1184,14 @@ Timeout 600
     DirectoryIndex index.html
 
     # =====================================================
-    # API REVERSE PROXY
+    # API REVERSE PROXY  (unchanged from the HTTP config)
     # =====================================================
     ProxyRequests Off
     ProxyPreserveHost On
     ProxyTimeout 600
+
+    # Tell the backend the client connection was HTTPS
+    RequestHeader set X-Forwarded-Proto "https"
 
     ProxyPass        /api/login http://127.0.0.1:8000/api/login
     ProxyPassReverse /api/login http://127.0.0.1:8000/api/login
@@ -1087,6 +1201,7 @@ Timeout 600
 
     # WebSocket proxy — must come before the generic /api/ rule.
     # mod_proxy_wstunnel handles the HTTP→WS upgrade handshake.
+    # (Browser side is wss:// via Apache; Apache→uvicorn stays ws://)
     ProxyPass        /api/ws/ ws://127.0.0.1:8000/ws/
     ProxyPassReverse /api/ws/ ws://127.0.0.1:8000/ws/
 
@@ -1098,14 +1213,14 @@ Timeout 600
     # =====================================================
     # LOGGING
     # =====================================================
-    ErrorLog /var/log/httpd/cmds-go-error.log
-    CustomLog /var/log/httpd/cmds-go-access.log combined
+    ErrorLog /var/log/httpd/cmds-go-ssl-error.log
+    CustomLog /var/log/httpd/cmds-go-ssl-access.log combined
 </VirtualHost>
 APACHECONF
 
-  step_ok "VirtualHost written: ${CONF}"
+  step_ok "VirtualHost written: ${CONF} (HTTPS 443, HTTP 80 → HTTPS except /images)"
 
-  # Make sure mod_proxy_wstunnel is enabled (required for WebSocket upload)
+  # Make sure mod_proxy_wstunnel is enabled (required for WebSocket proxy)
   if ! grep -q 'proxy_wstunnel_module' /etc/httpd/conf.modules.d/00-proxy.conf 2>/dev/null; then
     echo "LoadModule proxy_wstunnel_module modules/mod_proxy_wstunnel.so" \
       >> /etc/httpd/conf.modules.d/00-proxy.conf
@@ -1113,6 +1228,17 @@ APACHECONF
   else
     step_ok "mod_proxy_wstunnel already present in 00-proxy.conf"
   fi
+
+  # mod_ssl (from the mod_ssl package), mod_rewrite and mod_headers
+  # (httpd base) must be loaded for this config.
+  local mod
+  for mod in ssl_module rewrite_module headers_module; do
+    if grep -rqE "^[[:space:]]*LoadModule[[:space:]]+${mod}[[:space:]]" /etc/httpd/conf.modules.d/ 2>/dev/null; then
+      step_ok "${mod} loaded"
+    else
+      step_fail "${mod} not loaded — check mod_ssl / httpd packages"
+    fi
+  done
 
   # Syntax test
   local syntax_out
@@ -1129,7 +1255,7 @@ APACHECONF
   systemctl restart httpd >>"$log" 2>&1
 
   if systemctl is-active --quiet httpd; then
-    step_ok "Apache (httpd) running"
+    step_ok "Apache (httpd) running with SSL"
   else
     step_fail "Apache failed to start — see ${log} and /var/log/httpd/error_log"
   fi
@@ -1175,6 +1301,93 @@ EOF
   else
     step_fail "cmds-go service failed to start"
     step_info "Check: journalctl -u cmds-go -n 50 --no-pager"
+  fi
+  sleep 1
+}
+
+# =============================================================
+# STEP 26b — IOS-XE UPLOAD TLS WRAPPER (stunnel)
+# The UI is HTTPS, and browsers block ws:// from an https:// page.
+# The IOS-XE upload deliberately talks DIRECTLY to uvicorn :8000
+# (Apache's proxy stalled large uploads), so stunnel wraps that
+# same connection in TLS on :8443 and relays raw TCP bytes to
+# 127.0.0.1:8000. No HTTP/WebSocket parsing or buffering;
+# uvicorn and the upload protocol are unchanged.
+#   Browser  wss://<server>:8443/ws/upload/iosxe
+#   stunnel  :8443 (TLS, cmds-go cert)  ->  127.0.0.1:8000 (plain)
+# SELinux: stunnel_t may bind/connect any TCP port and read
+# /etc/pki certs (Fedora/RHEL policy) — no booleans needed.
+# =============================================================
+configure_upload_tls() {
+  section "IOS-XE Upload TLS Wrapper (stunnel :8443)"
+  local log="$LOGDIR/upload-tls.log"
+  local CONF="/etc/stunnel/cmds-upload-tls.conf"
+  local SVC="/etc/systemd/system/cmds-upload-tls.service"
+  : > "$log"
+
+  if ! command -v stunnel >/dev/null 2>&1; then
+    step_fail "stunnel not installed — check package install"
+    return 1
+  fi
+  if [[ ! -f /etc/pki/tls/certs/cmds-go.crt || ! -f /etc/pki/tls/private/cmds-go.key ]]; then
+    step_fail "cmds-go certificate missing — generate_ssl_cert must run first"
+    return 1
+  fi
+
+  mkdir -p /etc/stunnel
+  cat > "$CONF" <<'EOF'
+; CMDS-GO — TLS wrapper for the direct IOS-XE upload WebSocket
+; Browser: wss://<server>:8443/ws/upload/iosxe  ->  uvicorn ws://127.0.0.1:8000
+; Pure TCP relay: no HTTP/WebSocket parsing or buffering.
+foreground = yes
+pid =
+syslog = yes
+debug = notice
+
+[cmds-upload]
+accept  = 0.0.0.0:8443
+connect = 127.0.0.1:8000
+cert    = /etc/pki/tls/certs/cmds-go.crt
+key     = /etc/pki/tls/private/cmds-go.key
+sslVersionMin = TLSv1.2
+; long idle allowance for multi-GB uploads on slow links (12h)
+TIMEOUTidle = 43200
+EOF
+  chmod 644 "$CONF"
+  step_ok "stunnel config written: ${CONF}"
+
+  cat > "$SVC" <<'EOF'
+[Unit]
+Description=CMDS-GO IOS-XE upload TLS wrapper (wss :8443 -> uvicorn :8000)
+After=network-online.target cmds-go.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/stunnel /etc/stunnel/cmds-upload-tls.conf
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  step_ok "Service unit written: ${SVC}"
+
+  if command -v restorecon >/dev/null 2>&1; then
+    restorecon -Rv /etc/stunnel "$SVC" >>"$log" 2>&1 || true
+    step_ok "SELinux context restored on stunnel config"
+  fi
+
+  systemctl daemon-reload >>"$log" 2>&1
+  systemctl enable cmds-upload-tls >>"$log" 2>&1
+  systemctl restart cmds-upload-tls >>"$log" 2>&1
+  sleep 2
+
+  if systemctl is-active --quiet cmds-upload-tls; then
+    step_ok "cmds-upload-tls running (wss :8443 -> 127.0.0.1:8000)"
+  else
+    step_fail "cmds-upload-tls failed to start"
+    step_info "Check: journalctl -u cmds-upload-tls -n 50 --no-pager"
   fi
   sleep 1
 }
@@ -1268,7 +1481,7 @@ final_status_report() {
   section "Installation Summary"
   echo ""
 
-  local services=("cmds-go" "httpd" "tftp-server.socket" "fail2ban" "chronyd" "firewalld")
+  local services=("cmds-go" "cmds-upload-tls" "httpd" "tftp-server.socket" "fail2ban" "chronyd" "firewalld")
 
   echo -e "  ${CYAN}Core Services:${TEXTRESET}"
   for svc in "${services[@]}"; do
@@ -1314,7 +1527,7 @@ final_status_report() {
 
   echo ""
   echo -e "  ${CYAN}Access Points:${TEXTRESET}"
-  echo -e "  ${YELLOW}→${TEXTRESET}  Web UI:      http://${server_ip}/"
+  echo -e "  ${YELLOW}→${TEXTRESET}  Web UI:      https://${server_ip}/"
 
   echo -e "  ${YELLOW}→${TEXTRESET}  Logs:        journalctl -u cmds-go -f"
   echo -e "  ${YELLOW}→${TEXTRESET}  Installer log: ${LOGDIR}/"
@@ -1384,8 +1597,10 @@ main() {
   install_python_packages
   deploy_cmds_web
   configure_selinux_cmds
+  generate_ssl_cert
   configure_apache_cmds
   install_cmds_service
+  configure_upload_tls
 
   configure_cmds_console
   install_update_timer
@@ -1414,7 +1629,7 @@ main() {
   echo -e "${GREEN}══════════════════════════════════════════════════${TEXTRESET}"
   echo ""
   echo -e "  ${CYAN}Install log:${TEXTRESET}  ${LOGDIR}/"
-  echo -e "  ${CYAN}Web UI:${TEXTRESET}       http://${server_ip}/"
+  echo -e "  ${CYAN}Web UI:${TEXTRESET}       https://${server_ip}/"
 
   echo ""
   echo -e "  Log files are available at: ${LOGDIR}/"
